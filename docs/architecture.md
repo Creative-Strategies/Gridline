@@ -28,11 +28,11 @@ The engine is “from scratch” at the spreadsheet layer: Gridline owns the wor
 - Fonts, solid fills, borders, alignments, built-in/custom number formats, row heights, and column widths.
 - Merged cells and frozen panes.
 - Sparse, virtualized viewport extraction, address lookup, text search, and CSV export.
-- Formula primitives for arithmetic and `SUM`, `AVERAGE`, `MIN`, `MAX`, and `COUNT` when a cached value is unavailable.
+- Workbook-wide formula dependencies, quoted/unquoted cross-sheet references, absolute references, comparisons, text literals, arithmetic, and the bounded `IF`, `ABS`, `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`, `COUNTBLANK`, `COUNTIF`, and `COUNTIFS` subset when a cached value is unavailable.
+- First-series line-chart extraction from worksheet drawing relationships, including Atlas-style nested chart parts and cell-backed categories/values.
 
-Deliberately deferred: editing and save-back, macros, external links, pivot tables, conditional-format rules, images/drawings, and native Excel chart rendering. Unsupported objects are ignored without preventing the sheet grid from loading.
+Deliberately deferred: editing and save-back, macros, external links, structured table references, pivot tables, conditional-format rules, embedded image decoding, multi-series/native Excel chart fidelity, and page-layout rendering. Unsupported objects are ignored without preventing the sheet grid from loading.
 
 ## Security and resource limits
 
 Parsing stays in a worker. The core rejects oversized archives, excessive expanded XML, too many sheets/cells, invalid relationship targets, and malformed coordinates. Formulas are interpreted as data by a small evaluator; they are never executed as JavaScript.
-

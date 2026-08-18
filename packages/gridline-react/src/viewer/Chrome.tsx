@@ -38,7 +38,9 @@ export function TopBar({
     <header className="gridline__topbar">
       <button
         aria-label={railOpen ? "Hide sheet navigation" : "Show sheet navigation"}
-        className="gridline__icon-button gridline__rail-menu"
+        className={`gridline__icon-button gridline__rail-menu${
+          railOpen ? "" : " gridline__rail-menu--visible"
+        }`}
         onClick={onToggleRail}
         type="button"
       >

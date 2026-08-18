@@ -134,6 +134,10 @@
   margin-right: 5px;
 }
 
+.gridline__rail-menu--visible {
+  display: inline-flex;
+}
+
 .gridline__about-wrap {
   position: relative;
 }

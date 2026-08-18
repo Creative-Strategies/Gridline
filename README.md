@@ -38,10 +38,10 @@ Render the viewer from a client component:
 
 import { GridlineViewer } from "@gridline/react";
 
-export function WorkbookView() {
+export function WorkbookView({ file }: { file?: File }) {
   return (
     <GridlineViewer
-      initialFile={fileFromYourApplication}
+      initialFile={file}
       initialZoom={1}
       onError={(error) => console.error(error)}
       onWorkbookOpen={(file) => console.info("Opened", file.name)}
