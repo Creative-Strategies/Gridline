@@ -360,10 +360,10 @@ fn axis_union_len(frozen_end: u32, start: u32, end: u32) -> u64 {
 
 fn axis_union_ranges(frozen_end: u32, start: u32, end: u32) -> Vec<std::ops::Range<u32>> {
     if frozen_end == 0 {
-        return vec![start..end];
+        return std::iter::once(start..end).collect();
     }
     if start <= frozen_end {
-        return vec![0..end.max(frozen_end)];
+        return std::iter::once(0..end.max(frozen_end)).collect();
     }
     vec![0..frozen_end, start..end]
 }
