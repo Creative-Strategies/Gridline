@@ -8,17 +8,19 @@ The engine is “from scratch” at the spreadsheet layer: Gridline owns the wor
 
 ## Data flow
 
-1. The browser transfers an `.xlsx` `ArrayBuffer` to a module worker.
-2. Rust/WASM opens the OOXML ZIP container and resolves workbook relationships.
-3. The core builds a sparse workbook model with shared styles and strings.
-4. React requests a row/column window based on scroll position.
-5. WASM returns a compact display list with geometry, formatted text, and resolved paint tokens.
-6. The React canvas renderer paints the display list at device-pixel resolution and keeps DOM overlays only for interaction and accessibility.
+1. The source layer resolves a local file, byte buffer, signed URL, authenticated request, or custom cloud resolver with cancellation and streaming limits.
+2. Platform-encrypted bytes are decrypted with Web Crypto or a host callback while the exact source blob is retained for download.
+3. The browser transfers the resolved workbook payload to a candidate module worker. A candidate replaces the active worker only after a successful parse.
+4. Rust/WASM detects and decrypts password-protected Office containers, opens the OOXML ZIP, and resolves workbook relationships.
+5. The core builds a sparse workbook model with shared styles and strings.
+6. React requests a row/column window based on scroll position.
+7. WASM returns a compact display list with geometry, formatted text, and resolved paint tokens.
+8. The React canvas renderer paints the display list at device-pixel resolution and keeps DOM overlays only for interaction and accessibility.
 
 ## Package boundaries
 
 - `gridline-core` has no React or Next.js dependency and can be tested natively.
-- `@gridline/react` owns worker lifecycle, scrolling, selection, file input, and canvas painting.
+- `@gridline/react` owns source resolution, encryption envelopes, candidate-worker lifecycle, platform control, scrolling, selection, file input, and canvas painting.
 - `@gridline/demo` proves App Router integration without server-side WASM execution.
 
 ## Supported OOXML surface
@@ -35,4 +37,4 @@ Deliberately deferred: editing and save-back, macros, external links, structured
 
 ## Security and resource limits
 
-Parsing stays in a worker. The core rejects oversized archives, excessive expanded XML, too many sheets/cells, invalid relationship targets, and malformed coordinates. Formulas are interpreted as data by a small evaluator; they are never executed as JavaScript.
+Parsing and Office decryption stay in a worker. The source layer caps remote data before and during streaming; the core separately rejects oversized archives, excessive expanded XML, too many sheets/cells, invalid relationship targets, and malformed coordinates. Formulas are interpreted as data by a small evaluator; they are never executed as JavaScript. Passwords are passed only to the active decrypt operation and are not published in controller state.

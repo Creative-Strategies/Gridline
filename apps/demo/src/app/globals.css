@@ -5,3 +5,41 @@ button, input { font: inherit; }
 main { height: 100dvh; min-height: 640px; padding: 12px; }
 .demo-viewer { height: 100%; }
 
+.platform-page { height: 100dvh; min-height: 720px; padding: 0; }
+.platform-shell { display: grid; grid-template-columns: 320px minmax(0, 1fr); height: 100%; }
+.platform-panel {
+  background: #fff;
+  border-right: 1px solid #d9e0e6;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  overflow: auto;
+  padding: 26px 22px;
+}
+.platform-kicker { color: #08783e; font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.platform-panel h1 { font-size: 24px; letter-spacing: -.03em; line-height: 1.1; margin: 7px 0 9px; }
+.platform-panel p { color: #66707b; font-size: 12px; line-height: 1.55; margin: 0; }
+.platform-panel form { display: grid; gap: 13px; }
+.platform-panel label { color: #333b44; display: grid; font-size: 11px; font-weight: 650; gap: 6px; }
+.platform-panel label span { color: #7d8792; font-weight: 450; }
+.platform-panel input { border: 1px solid #b7c0c8; border-radius: 5px; font-size: 12px; height: 38px; min-width: 0; padding: 0 10px; }
+.platform-panel button { border: 1px solid #d9e0e6; border-radius: 5px; cursor: pointer; font-size: 11px; font-weight: 650; height: 34px; padding: 0 11px; }
+.platform-panel button:disabled { cursor: default; opacity: .45; }
+.platform-panel .platform-primary { background: #08783e; border-color: #08783e; color: #fff; height: 38px; }
+.platform-actions { display: grid; gap: 6px; grid-template-columns: repeat(3, 1fr); }
+.platform-actions button { background: #f6f8fa; padding-inline: 6px; }
+.platform-state { border: 1px solid #d9e0e6; border-radius: 6px; margin: 0; overflow: hidden; }
+.platform-state div { align-items: center; border-bottom: 1px solid #edf1f4; display: flex; font-size: 11px; justify-content: space-between; min-width: 0; padding: 8px 10px; }
+.platform-state div:last-child { border-bottom: 0; }
+.platform-state dt { color: #66707b; }
+.platform-state dd { font-variant-numeric: tabular-nums; margin: 0; max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.platform-state dd[data-status="ready"] { color: #08783e; font-weight: 700; }
+.platform-security-note { border-left: 2px solid #08783e; margin-top: auto !important; padding-left: 10px; }
+.platform-viewer-wrap { min-height: 0; padding: 12px; }
+
+@media (max-width: 880px) {
+  .platform-page { height: auto; min-height: 100dvh; }
+  .platform-shell { grid-template-columns: 1fr; }
+  .platform-panel { border-bottom: 1px solid #d9e0e6; border-right: 0; }
+  .platform-viewer-wrap { height: 720px; }
+}
