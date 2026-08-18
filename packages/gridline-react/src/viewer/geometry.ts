@@ -40,14 +40,37 @@ export function hitTestCell(
   if (x < ROW_HEADER_WIDTH || y < COLUMN_HEADER_HEIGHT) return null;
   const absoluteX = (x - ROW_HEADER_WIDTH + scrollX) / zoom;
   const absoluteY = (y - COLUMN_HEADER_HEIGHT + scrollY) / zoom;
-  const column = display.columns.find((metric) => {
-    const start = display.originX + metric.offset;
-    return absoluteX >= start && absoluteX < start + metric.size;
-  });
-  const row = display.rows.find((metric) => {
-    const start = display.originY + metric.offset;
-    return absoluteY >= start && absoluteY < start + metric.size;
-  });
+  const column = findAxisMetric(display.columns, absoluteX - display.originX);
+  const row = findAxisMetric(display.rows, absoluteY - display.originY);
   return column && row ? { row: row.index, column: column.index } : null;
 }
 
+/**
+ * Finds the metric containing a local axis offset in O(log n) time.
+ *
+ * A viewport can contain thousands of rows when a workbook uses compact row
+ * heights. Keeping hit testing logarithmic prevents pointer movement from
+ * turning into a scan over every visible metric. Hidden dimensions have a
+ * zero size and are deliberately skipped.
+ */
+export function findAxisMetric(
+  metrics: DisplayList["columns"],
+  offset: number,
+) {
+  let low = 0;
+  let high = metrics.length - 1;
+  while (low <= high) {
+    const middle = low + Math.floor((high - low) / 2);
+    const metric = metrics[middle];
+    if (offset < metric.offset) {
+      high = middle - 1;
+      continue;
+    }
+    if (offset >= metric.offset + metric.size) {
+      low = middle + 1;
+      continue;
+    }
+    return metric.size > 0 ? metric : undefined;
+  }
+  return undefined;
+}

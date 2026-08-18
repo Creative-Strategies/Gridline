@@ -152,19 +152,101 @@ function paintText(
   const fontSize = Math.max(8, style.font.size * zoom);
   context.font = `${style.font.italic ? "italic " : ""}${style.font.bold ? "600 " : "400 "}${fontSize}px ${style.font.family || "Arial"}, sans-serif`;
   context.fillStyle = style.font.color ?? colors.text;
-  context.textBaseline = "middle";
   const numeric = value.kind === "number";
   const alignment = style.alignment.horizontal ?? (numeric ? "right" : "left");
   context.textAlign = alignment === "center" ? "center" : alignment === "right" ? "right" : "left";
   const padding = Math.max(5, 8 * zoom);
   const textX =
     alignment === "center" ? x + width / 2 : alignment === "right" ? x + width - padding : x + padding;
+  const lineHeight = Math.max(11, fontSize * 1.2);
+  const maxLines = style.alignment.wrapText
+    ? Math.max(1, Math.floor((height - padding) / lineHeight))
+    : 1;
+  const lines = style.alignment.wrapText
+    ? wrapText(text, Math.max(1, width - padding * 2), (line) => context.measureText(line).width, maxLines)
+    : [text];
+  const blockHeight = lines.length * lineHeight;
+  const vertical = style.alignment.vertical?.toLowerCase();
+  const firstBaseline =
+    vertical === "top"
+      ? y + Math.max(fontSize, padding)
+      : vertical === "bottom"
+        ? y + height - Math.max(2, padding / 2) - blockHeight + fontSize
+        : y + (height - blockHeight) / 2 + fontSize;
   context.save();
   context.beginPath();
   context.rect(x + 2, y + 1, Math.max(0, width - 4), Math.max(0, height - 2));
   context.clip();
-  context.fillText(text, textX, y + height / 2);
+  context.textBaseline = "alphabetic";
+  lines.forEach((line, index) => {
+    context.fillText(line, textX, firstBaseline + index * lineHeight);
+  });
   context.restore();
+}
+
+/**
+ * Wraps cell text without creating DOM nodes. Spreadsheet cells are often
+ * long labels with an explicit wrap flag, and drawing the full string as one
+ * line makes those labels disappear behind the next cell. The callback keeps
+ * this helper independent from Canvas so its layout policy remains testable.
+ */
+export function wrapText(
+  text: string,
+  maxWidth: number,
+  measure: (line: string) => number,
+  maxLines = Number.POSITIVE_INFINITY,
+) {
+  if (!text || maxWidth <= 0 || maxLines < 1) return [];
+  const lines: string[] = [];
+  const paragraphs = text.split(/\r?\n/);
+  let truncated = false;
+
+  const pushLine = (line: string) => {
+    if (lines.length >= maxLines) {
+      truncated = true;
+      return false;
+    }
+    lines.push(line);
+    return true;
+  };
+
+  for (const paragraph of paragraphs) {
+    if (lines.length >= maxLines) break;
+    if (!paragraph.trim()) {
+      pushLine("");
+      continue;
+    }
+    let current = "";
+    for (const word of paragraph.trim().split(/\s+/)) {
+      const chunks: string[] = [];
+      let remainder = word;
+      while (measure(remainder) > maxWidth && remainder.length > 1) {
+        let split = remainder.length - 1;
+        while (split > 1 && measure(remainder.slice(0, split)) > maxWidth) split -= 1;
+        chunks.push(remainder.slice(0, split));
+        remainder = remainder.slice(split);
+      }
+      chunks.push(remainder);
+      for (const chunk of chunks) {
+        const candidate = current ? `${current} ${chunk}` : chunk;
+        if (!current || measure(candidate) <= maxWidth) {
+          current = candidate;
+          continue;
+        }
+        if (!pushLine(current)) break;
+        current = chunk;
+      }
+      if (lines.length >= maxLines) break;
+    }
+    if (lines.length < maxLines && current) pushLine(current);
+  }
+
+  if (truncated && lines.length) {
+    let last = lines[lines.length - 1];
+    while (last && measure(`${last}…`) > maxWidth) last = last.slice(0, -1);
+    lines[lines.length - 1] = `${last}…`;
+  }
+  return lines;
 }
 
 function paintBorders(
@@ -341,4 +423,3 @@ function paintHeaders(
 function crisp(value: number) {
   return Math.round(value) + 0.5;
 }
-

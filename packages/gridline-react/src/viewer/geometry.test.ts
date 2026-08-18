@@ -5,6 +5,7 @@ import {
   ROW_HEADER_WIDTH,
   cellAddress,
   columnLabel,
+  findAxisMetric,
   hitTestCell,
   parseCellAddress,
 } from "./geometry";
@@ -46,5 +47,19 @@ describe("spreadsheet geometry", () => {
     ).toEqual({ row: 1, column: 1 });
     expect(hitTestCell(display, 10, 10, 0, 0, 1)).toBeNull();
   });
-});
 
+  it("finds metrics logarithmically across hidden dimensions and boundaries", () => {
+    const metrics = [
+      { index: 0, label: "A", offset: 0, size: 40 },
+      { index: 1, label: "B", offset: 40, size: 0 },
+      { index: 2, label: "C", offset: 40, size: 80 },
+      { index: 3, label: "D", offset: 120, size: 32 },
+    ];
+    expect(findAxisMetric(metrics, 0)?.index).toBe(0);
+    expect(findAxisMetric(metrics, 39.99)?.index).toBe(0);
+    expect(findAxisMetric(metrics, 40)?.index).toBe(2);
+    expect(findAxisMetric(metrics, 119.99)?.index).toBe(2);
+    expect(findAxisMetric(metrics, 120)?.index).toBe(3);
+    expect(findAxisMetric(metrics, 152)).toBeUndefined();
+  });
+});
