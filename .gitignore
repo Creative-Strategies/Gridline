@@ -1,0 +1,10 @@
+node_modules/
+.next/
+dist/
+coverage/
+target/
+packages/gridline-wasm/pkg/
+work/
+.DS_Store
+*.log
+

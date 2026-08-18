@@ -1,0 +1,7 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: #f6f8fa; color: #171b21; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+button, input { font: inherit; }
+main { height: 100dvh; min-height: 640px; padding: 12px; }
+.demo-viewer { height: 100%; }
+
