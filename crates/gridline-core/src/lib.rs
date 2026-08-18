@@ -27,7 +27,10 @@ impl WorkbookHandle {
     #[wasm_bindgen(constructor)]
     pub fn new(bytes: &[u8]) -> std::result::Result<WorkbookHandle, JsValue> {
         ooxml::parse_workbook(bytes)
-            .map(|workbook| Self { workbook })
+            .map(|mut workbook| {
+                formula::evaluate_missing_formulas_in_workbook(&mut workbook);
+                Self { workbook }
+            })
             .map_err(js_error)
     }
 
