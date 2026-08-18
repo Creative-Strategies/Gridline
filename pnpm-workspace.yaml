@@ -1,5 +1,3 @@
 packages:
   - apps/*
   - packages/*
-  - packages/gridline-wasm/pkg
-

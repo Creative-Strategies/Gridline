@@ -2,7 +2,7 @@
 
 Gridline is a from-scratch, local-first Excel workbook viewer for Next.js. A Rust/WebAssembly core parses OOXML workbooks, resolves shared strings and styles, formats values, and produces a viewport display list. A React canvas surface renders only the visible cells.
 
-No workbook data leaves the browser, and no third-party spreadsheet engine is embedded.
+No workbook data leaves the browser, and no third-party spreadsheet engine is embedded. The workbook bytes are transferred to a Web Worker, parsed by Rust compiled to WebAssembly, and painted through a virtualized canvas.
 
 ## Workspace
 
@@ -21,6 +21,39 @@ pnpm dev
 
 Then open `http://localhost:3000` and drop an `.xlsx` file onto the viewer.
 
+Prerequisites: Node.js 20+, pnpm 10+, Rust, and `wasm-pack`.
+
+## Embed in Next.js
+
+Build the WASM package before starting or building Next.js:
+
+```bash
+pnpm build:wasm
+```
+
+Render the viewer from a client component:
+
+```tsx
+"use client";
+
+import { GridlineViewer } from "@gridline/react";
+
+export function WorkbookView() {
+  return (
+    <GridlineViewer
+      initialFile={fileFromYourApplication}
+      initialZoom={1}
+      onError={(error) => console.error(error)}
+      onWorkbookOpen={(file) => console.info("Opened", file.name)}
+    />
+  );
+}
+```
+
+The reference app uses webpack because the generated module ships a `.wasm` asset. Its [`next.config.ts`](apps/demo/next.config.ts) enables `asyncWebAssembly`, assigns a stable static asset path, and transpiles the two workspace packages. The viewer must be imported by a client component; the worker keeps workbook parsing out of the server-rendering path and off the main browser thread.
+
+The current component is read-only and intentionally opinionated. It includes programmatic initial-file loading, file open/drop, sheet navigation, selection, formula inspection, zoom, sparse scrolling, and CSV export. `GridlineViewerProps`, `WorkbookEngineClient`, and `useWorkbookEngine` are exported for typed integrations that need custom chrome.
+
 ## Verification
 
 ```bash
@@ -31,3 +64,6 @@ pnpm build
 
 See [`docs/architecture.md`](docs/architecture.md) for the engine contract and current OOXML support.
 
+## Atlas reference workbook
+
+The supplied `Atlas_AI_Factory_Economics_Model_Service_V1.xlsx` is used as a local compatibility fixture without being copied into the repository. It exercises 13 worksheets, cross-sheet formulas, custom financial formats, merged headings, tables, drawings, images, and a chart-like dashboard surface. See [`docs/atlas-compatibility.md`](docs/atlas-compatibility.md) for the exact coverage and known limits after running the compatibility audit.

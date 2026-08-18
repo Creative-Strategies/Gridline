@@ -23,6 +23,7 @@ import "./gridline.css";
 
 export type GridlineViewerProps = {
   className?: string;
+  initialFile?: File;
   initialZoom?: number;
   onError?: (error: Error) => void;
   onWorkbookOpen?: (file: File) => void;
@@ -32,11 +33,13 @@ const initialSelection: CellCoord = { row: 7, column: 2 };
 
 export function GridlineViewer({
   className,
+  initialFile,
   initialZoom = 1,
   onError,
   onWorkbookOpen,
 }: GridlineViewerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const openedInitialFileRef = useRef(false);
   const [activeSheet, setActiveSheet] = useState(0);
   const [selected, setSelected] = useState<CellCoord>(initialSelection);
   const [selectedCell, setSelectedCell] = useState<CellSnapshot | null>(null);
@@ -97,6 +100,14 @@ export function GridlineViewer({
     },
     [openFile],
   );
+
+  useEffect(() => {
+    if (!initialFile || openedInitialFileRef.current || status !== "ready") {
+      return;
+    }
+    openedInitialFileRef.current = true;
+    void openFile(initialFile);
+  }, [initialFile, openFile, status]);
 
   const handleExport = useCallback(async () => {
     if (!metadata) return;

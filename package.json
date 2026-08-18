@@ -7,10 +7,10 @@
     "build": "pnpm build:wasm && pnpm --filter @gridline/demo build",
     "build:wasm": "wasm-pack build crates/gridline-core --target web --out-dir ../../packages/gridline-wasm/pkg --out-name gridline_core",
     "dev": "pnpm build:wasm && pnpm --filter @gridline/demo dev",
+    "inspect:xlsx": "node scripts/inspect-xlsx.mjs",
     "lint": "pnpm --filter @gridline/demo lint && pnpm --filter @gridline/react typecheck",
     "test": "cargo test --workspace && pnpm --filter @gridline/react test && pnpm --filter @gridline/demo test",
     "test:rust": "cargo test --workspace",
     "typecheck": "pnpm --filter @gridline/react typecheck && pnpm --filter @gridline/demo typecheck"
   }
 }
-

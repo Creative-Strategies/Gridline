@@ -1,0 +1,18 @@
+{
+  "name": "gridline-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Generated WebAssembly bindings for Gridline's Rust workbook engine",
+  "main": "./pkg/gridline_core.js",
+  "types": "./pkg/gridline_core.d.ts",
+  "exports": {
+    ".": {
+      "types": "./pkg/gridline_core.d.ts",
+      "import": "./pkg/gridline_core.js"
+    }
+  },
+  "files": [
+    "pkg"
+  ]
+}
