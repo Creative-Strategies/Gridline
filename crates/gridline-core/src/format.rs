@@ -155,22 +155,153 @@ fn format_excel_date(serial: f64, code: &str, date_1904: bool) -> String {
     let hour = total_seconds / 3_600;
     let minute = (total_seconds % 3_600) / 60;
     let second = total_seconds % 60;
-    let has_time = code.contains('h') || code.contains('s');
-    let date = if code.contains("mmm") {
-        let month_name = [
-            "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-        ][month.saturating_sub(1) as usize];
-        format!("{month_name} {day}, {year}")
-    } else if code.starts_with('d') {
-        format!("{day:02}/{month:02}/{year:04}")
-    } else {
-        format!("{month:02}/{day:02}/{year:04}")
-    };
-    if has_time {
-        format!("{date} {hour:02}:{minute:02}:{second:02}")
-    } else {
-        date
+    render_date_pattern(code, year, month, day, hour, minute, second)
+}
+
+fn render_date_pattern(
+    code: &str,
+    year: i32,
+    month: u32,
+    day: u32,
+    hour: u32,
+    minute: u32,
+    second: u32,
+) -> String {
+    let lower = code.to_ascii_lowercase();
+    let characters = lower.chars().collect::<Vec<_>>();
+    let time_only = !lower.contains('y')
+        && !lower.contains('d')
+        && (lower.contains('h') || lower.contains('s'));
+    let mut output = String::new();
+    let mut cursor = 0usize;
+    let mut time_started = false;
+
+    while cursor < characters.len() {
+        if characters[cursor].is_ascii_whitespace() {
+            output.push(characters[cursor]);
+            cursor += 1;
+            continue;
+        }
+        if characters[cursor..].starts_with(&['a', 'm', '/', 'p', 'm']) {
+            output.push_str(if hour < 12 { "AM" } else { "PM" });
+            cursor += 5;
+            time_started = true;
+            continue;
+        }
+        let token = characters[cursor];
+        let run = characters[cursor..]
+            .iter()
+            .take_while(|character| **character == token)
+            .count();
+        match token {
+            'y' => match run {
+                1 | 2 => output.push_str(&format!("{:02}", year.rem_euclid(100))),
+                _ => output.push_str(&format!("{year:04}")),
+            },
+            'm' if !time_started && !time_only => match run {
+                1 => output.push_str(&format!("{month}")),
+                2 => output.push_str(&format!("{month:02}")),
+                3 => output.push_str(month_name(month)),
+                _ => output.push_str(full_month_name(month)),
+            },
+            'm' => match run {
+                1 => output.push_str(&format!("{minute}")),
+                _ => output.push_str(&format!("{minute:02}")),
+            },
+            'd' => match run {
+                1 => output.push_str(&format!("{day}")),
+                2 => output.push_str(&format!("{day:02}")),
+                3 => output.push_str(weekday_name(year, month, day)),
+                _ => output.push_str(full_weekday_name(year, month, day)),
+            },
+            'h' => {
+                let display_hour = if lower.contains("am/pm") {
+                    let value = hour % 12;
+                    if value == 0 { 12 } else { value }
+                } else {
+                    hour
+                };
+                if run == 1 {
+                    output.push_str(&format!("{display_hour}"));
+                } else {
+                    output.push_str(&format!("{display_hour:02}"));
+                }
+                time_started = true;
+            }
+            's' => {
+                if run == 1 {
+                    output.push_str(&format!("{second}"));
+                } else {
+                    output.push_str(&format!("{second:02}"));
+                }
+                time_started = true;
+            }
+            _ => output.push(token),
+        }
+        cursor += run.max(1);
     }
+
+    if output.is_empty() {
+        format!("{month:02}/{day:02}/{year:04}")
+    } else {
+        output
+    }
+}
+
+fn month_name(month: u32) -> &'static str {
+    [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+    .get(month.saturating_sub(1) as usize)
+    .copied()
+    .unwrap_or("Jan")
+}
+
+fn full_month_name(month: u32) -> &'static str {
+    [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ]
+    .get(month.saturating_sub(1) as usize)
+    .copied()
+    .unwrap_or("January")
+}
+
+fn weekday_name(year: i32, month: u32, day: u32) -> &'static str {
+    ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][weekday(year, month, day) as usize]
+}
+
+fn full_weekday_name(year: i32, month: u32, day: u32) -> &'static str {
+    [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+    ][weekday(year, month, day) as usize]
+}
+
+fn weekday(year: i32, month: u32, day: u32) -> u32 {
+    // Sakamoto's Gregorian weekday algorithm; 0 = Sunday.
+    let offsets = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    let adjusted_year = year - i32::from(month < 3);
+    (adjusted_year + adjusted_year / 4 - adjusted_year / 100
+        + adjusted_year / 400
+        + offsets[month.saturating_sub(1) as usize]
+        + day as i32)
+        .rem_euclid(7) as u32
 }
 
 // Howard Hinnant's civil calendar conversion, with z measured from 1970-01-01.
@@ -211,5 +342,10 @@ mod tests {
             format_number(45_292.5, "mm/dd/yyyy hh:mm:ss", false),
             "01/01/2024 12:00:00"
         );
+        assert_eq!(
+            format_number(46_251.791666666664, "yyyy-mm-dd", false),
+            "2026-08-17"
+        );
+        assert_eq!(format_number(45_292.5, "d-mmm-yy", false), "1-Jan-24");
     }
 }
