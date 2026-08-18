@@ -605,6 +605,7 @@ fn parse_worksheet(
                 let name = local.as_ref();
                 match name {
                     b"dimension" => apply_dimension(&reader, &event, &mut worksheet)?,
+                    b"sheetView" => apply_sheet_view(&reader, &event, &mut worksheet)?,
                     b"row" => apply_row(&reader, &event, &mut worksheet)?,
                     b"col" => apply_column(&reader, &event, &mut worksheet)?,
                     b"c" => current_cell = Some(begin_cell(&reader, &event, style_count)?),
@@ -623,6 +624,7 @@ fn parse_worksheet(
             }
             Event::Empty(event) => match event.local_name().as_ref() {
                 b"dimension" => apply_dimension(&reader, &event, &mut worksheet)?,
+                b"sheetView" => apply_sheet_view(&reader, &event, &mut worksheet)?,
                 b"row" => apply_row(&reader, &event, &mut worksheet)?,
                 b"col" => apply_column(&reader, &event, &mut worksheet)?,
                 b"c" => {
@@ -1210,6 +1212,17 @@ fn apply_merge(
     Ok(())
 }
 
+fn apply_sheet_view(
+    reader: &Reader<&[u8]>,
+    event: &BytesStart<'_>,
+    worksheet: &mut Worksheet,
+) -> Result<()> {
+    if let Some(value) = attribute(reader, event, b"showGridLines")? {
+        worksheet.show_grid_lines = parse_bool(&value);
+    }
+    Ok(())
+}
+
 fn apply_pane(
     reader: &Reader<&[u8]>,
     event: &BytesStart<'_>,
@@ -1454,6 +1467,7 @@ mod tests {
         );
         assert_eq!(workbook.sheets[0].merged_cells.len(), 1);
         assert_eq!(workbook.sheets[0].freeze.rows, 1);
+        assert!(!workbook.sheets[0].show_grid_lines);
         assert_eq!(workbook.styles[1].number_format, "$#,##0");
     }
 
@@ -1556,7 +1570,7 @@ mod tests {
             ),
             (
                 "xl/worksheets/sheet1.xml",
-                r#"<?xml version="1.0"?><worksheet><dimension ref="A1:C3"/><sheetViews><sheetView><pane xSplit="1" ySplit="1" topLeftCell="B2" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="20"/></cols><sheetData><row r="1" ht="24"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="B2" s="1"><v>1250</v></c></row><row r="3"><c r="C3" s="1"><f>SUM(B2:B2)</f></c></row></sheetData><mergeCells count="1"><mergeCell ref="A1:C1"/></mergeCells></worksheet>"#,
+                r#"<?xml version="1.0"?><worksheet><dimension ref="A1:C3"/><sheetViews><sheetView showGridLines="0"><pane xSplit="1" ySplit="1" topLeftCell="B2" state="frozen"/></sheetView></sheetViews><cols><col min="1" max="1" width="20"/></cols><sheetData><row r="1" ht="24"><c r="A1" t="s"><v>0</v></c></row><row r="2"><c r="B2" s="1"><v>1250</v></c></row><row r="3"><c r="C3" s="1"><f>SUM(B2:B2)</f></c></row></sheetData><mergeCells count="1"><mergeCell ref="A1:C1"/></mergeCells></worksheet>"#,
             ),
             (
                 "docProps/core.xml",

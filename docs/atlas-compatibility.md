@@ -26,7 +26,9 @@ Gridline derives bounds from populated cells when the dimension is omitted.
 ## Observed worksheet structures
 
 Across the 13 sheets there are 3,084 stored cell records, 216 formulas, 48
-merged ranges, and no frozen panes. Column spans use widths from 4 to 75
+merged ranges, and no frozen panes. The sheets omit sheetView overrides, so
+Excel's default visible gridlines apply. Gridline also honors explicit
+showGridLines="0" views and frozen row/column panes in other workbooks. Column spans use widths from 4 to 75
 Excel-width units; row records use explicit heights on the title/header rows.
 Cells use t="str" for literal strings, t="n" for numbers, and formula
 cells commonly carry a cached <v> value alongside <f>. The parser preserves

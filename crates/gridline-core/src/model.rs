@@ -173,6 +173,7 @@ pub struct ChartSpec {
 pub struct Worksheet {
     pub name: String,
     pub state: String,
+    pub show_grid_lines: bool,
     pub cells: BTreeMap<CellCoord, Cell>,
     pub row_heights: BTreeMap<u32, f32>,
     pub column_spans: Vec<ColumnSpan>,
@@ -188,6 +189,7 @@ impl Worksheet {
         Self {
             name: name.into(),
             state: "visible".into(),
+            show_grid_lines: true,
             cells: BTreeMap::new(),
             row_heights: BTreeMap::new(),
             column_spans: Vec::new(),
@@ -254,6 +256,7 @@ impl Worksheet {
 pub struct SheetMetadata {
     pub name: String,
     pub state: String,
+    pub show_grid_lines: bool,
     pub rows: u32,
     pub columns: u32,
     pub cell_count: usize,
@@ -308,6 +311,7 @@ impl Workbook {
                 .map(|sheet| SheetMetadata {
                     name: sheet.name.clone(),
                     state: sheet.state.clone(),
+                    show_grid_lines: sheet.show_grid_lines,
                     rows: if sheet.cells.is_empty() {
                         0
                     } else {

@@ -34,6 +34,7 @@ describe("spreadsheet geometry", () => {
         { index: 0, label: "1", offset: 0, size: 56 },
         { index: 1, label: "2", offset: 56, size: 24 },
       ],
+      freeze: { rows: 0, columns: 0 },
     } as DisplayList;
     expect(
       hitTestCell(
@@ -46,6 +47,43 @@ describe("spreadsheet geometry", () => {
       ),
     ).toEqual({ row: 1, column: 1 });
     expect(hitTestCell(display, 10, 10, 0, 0, 1)).toBeNull();
+  });
+
+  it("hit-tests pinned rows and columns independently from scroll", () => {
+    const display = {
+      originX: 640,
+      originY: 240,
+      columns: [
+        { index: 0, label: "A", offset: -640, size: 100 },
+        { index: 8, label: "I", offset: 0, size: 80 },
+      ],
+      rows: [
+        { index: 0, label: "1", offset: -240, size: 32 },
+        { index: 10, label: "11", offset: 0, size: 24 },
+      ],
+      freeze: { rows: 1, columns: 1 },
+    } as DisplayList;
+
+    expect(
+      hitTestCell(
+        display,
+        ROW_HEADER_WIDTH + 50,
+        COLUMN_HEADER_HEIGHT + 16,
+        540,
+        208,
+        1,
+      ),
+    ).toEqual({ row: 0, column: 0 });
+    expect(
+      hitTestCell(
+        display,
+        ROW_HEADER_WIDTH + 110,
+        COLUMN_HEADER_HEIGHT + 40,
+        540,
+        208,
+        1,
+      ),
+    ).toEqual({ row: 10, column: 8 });
   });
 
   it("finds metrics logarithmically across hidden dimensions and boundaries", () => {

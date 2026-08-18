@@ -67,7 +67,7 @@ Cloud-hosted and platform-encrypted workbooks can be supplied directly:
 
 The reference app uses webpack because the generated module ships a `.wasm` asset. Its [`next.config.ts`](apps/demo/next.config.ts) enables `asyncWebAssembly`, assigns a stable static asset path, and transpiles the two workspace packages. The viewer must be imported by a client component; the worker keeps workbook parsing out of the server-rendering path and off the main browser thread.
 
-The component is read-only and intentionally opinionated. It includes local and cloud loading, Office and platform-encrypted documents, exact-source and encrypted downloads, cancellation/progress, sheet navigation, selection, formula inspection, zoom, sparse scrolling, and CSV export. `GridlineController`, `GridlineViewerProps`, `WorkbookEngineClient`, and `useWorkbookEngine` are exported for typed integrations that need platform control or custom chrome. See [`docs/platform-integration.md`](docs/platform-integration.md) and the `/platform` reference route.
+The component is read-only and intentionally opinionated. It includes local and cloud loading, Office and platform-encrypted documents, exact-source and encrypted downloads, cancellation/progress, sheet navigation, selection, formula inspection, zoom, sparse scrolling, hidden dimensions, sheet-controlled gridline visibility, pinned frozen panes, and CSV export. `GridlineController`, `GridlineViewerProps`, `WorkbookEngineClient`, and `useWorkbookEngine` are exported for typed integrations that need platform control or custom chrome. See [`docs/platform-integration.md`](docs/platform-integration.md) and the `/platform` reference route.
 
 ## Verification
 

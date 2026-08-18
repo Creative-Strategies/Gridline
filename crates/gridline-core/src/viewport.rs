@@ -130,6 +130,8 @@ pub struct DisplayMerge {
 pub struct DisplayChart {
     pub title: String,
     pub subtitle: String,
+    pub row: u32,
+    pub column: u32,
     pub x: f32,
     pub y: f32,
     pub width: f32,
@@ -156,6 +158,7 @@ pub struct DisplayList {
     pub charts: Vec<DisplayChart>,
     pub styles: Vec<CellStyle>,
     pub freeze: FreezePane,
+    pub show_grid_lines: bool,
 }
 
 pub fn build_viewport(
@@ -175,7 +178,11 @@ pub fn build_viewport(
             "viewport bounds must be non-empty and ordered".into(),
         ));
     }
-    let requested_cells = u64::from(row_end - row_start) * u64::from(column_end - column_start);
+    let frozen_row_end = worksheet.freeze.rows.min(1_048_576);
+    let frozen_column_end = worksheet.freeze.columns.min(16_384);
+    let row_count = axis_union_len(frozen_row_end, row_start, row_end);
+    let column_count = axis_union_len(frozen_column_end, column_start, column_end);
+    let requested_cells = row_count * column_count;
     if requested_cells > MAX_VIEWPORT_CELLS {
         return Err(GridlineError::ResourceLimit(format!(
             "viewport requested {requested_cells} cells; limit is {MAX_VIEWPORT_CELLS}"
@@ -184,39 +191,56 @@ pub fn build_viewport(
 
     let origin_x = worksheet.column_offset(column_start);
     let origin_y = worksheet.row_offset(row_start);
-    let mut columns = Vec::with_capacity((column_end - column_start) as usize);
-    let mut x = 0.0;
-    for column in column_start..column_end {
-        let width = worksheet.column_width(column);
-        columns.push(AxisMetric {
-            index: column,
-            label: column_label(column),
-            offset: x,
-            size: width,
-        });
-        x += width;
+    let column_ranges = axis_union_ranges(frozen_column_end, column_start, column_end);
+    let row_ranges = axis_union_ranges(frozen_row_end, row_start, row_end);
+    let mut column_indices = Vec::with_capacity(column_count as usize);
+    let mut columns = Vec::with_capacity(column_count as usize);
+    for range in &column_ranges {
+        let mut absolute_x = worksheet.column_offset(range.start);
+        for column in range.clone() {
+            let width = worksheet.column_width(column);
+            column_indices.push(column);
+            columns.push(AxisMetric {
+                index: column,
+                label: column_label(column),
+                offset: absolute_x - origin_x,
+                size: width,
+            });
+            absolute_x += width;
+        }
     }
-    let mut rows = Vec::with_capacity((row_end - row_start) as usize);
-    let mut y = 0.0;
-    for row in row_start..row_end {
-        let height = worksheet.row_height(row);
-        rows.push(AxisMetric {
-            index: row,
-            label: (row + 1).to_string(),
-            offset: y,
-            size: height,
-        });
-        y += height;
+    let mut rows = Vec::with_capacity(row_count as usize);
+    for range in &row_ranges {
+        let mut absolute_y = worksheet.row_offset(range.start);
+        for row in range.clone() {
+            let height = worksheet.row_height(row);
+            rows.push(AxisMetric {
+                index: row,
+                label: (row + 1).to_string(),
+                offset: absolute_y - origin_y,
+                size: height,
+            });
+            absolute_y += height;
+        }
     }
 
     let intersecting_merges = worksheet
         .merged_cells
         .iter()
         .filter(|range| {
-            range.end.row >= row_start
-                && range.start.row < row_end
-                && range.end.column >= column_start
-                && range.start.column < column_end
+            axis_union_intersects(
+                range.start.row,
+                range.end.row.saturating_add(1),
+                frozen_row_end,
+                row_start,
+                row_end,
+            ) && axis_union_intersects(
+                range.start.column,
+                range.end.column.saturating_add(1),
+                frozen_column_end,
+                column_start,
+                column_end,
+            )
         })
         .collect::<Vec<_>>();
     let merges = intersecting_merges
@@ -225,74 +249,84 @@ pub fn build_viewport(
         .collect::<Vec<_>>();
 
     let mut cells = Vec::new();
-    for (_, cell) in worksheet
-        .cells
-        .range(CellCoord::new(row_start, 0)..CellCoord::new(row_end, 0))
-    {
-        if cell.coord.column < column_start || cell.coord.column >= column_end {
-            continue;
+    for row_range in row_ranges {
+        for (_, cell) in worksheet
+            .cells
+            .range(CellCoord::new(row_range.start, 0)..CellCoord::new(row_range.end, 0))
+        {
+            if column_indices.binary_search(&cell.coord.column).is_err() {
+                continue;
+            }
+            let merge = intersecting_merges
+                .iter()
+                .find(|range| range.contains(cell.coord));
+            if merge.is_some_and(|range| range.start != cell.coord) {
+                continue;
+            }
+            let style = workbook.style(cell.style_id);
+            let (width, height, merged) = if let Some(range) = merge {
+                (
+                    (range.start.column..=range.end.column)
+                        .map(|column| worksheet.column_width(column))
+                        .sum(),
+                    (range.start.row..=range.end.row)
+                        .map(|row| worksheet.row_height(row))
+                        .sum(),
+                    true,
+                )
+            } else {
+                (
+                    worksheet.column_width(cell.coord.column),
+                    worksheet.row_height(cell.coord.row),
+                    false,
+                )
+            };
+            cells.push(DisplayCell {
+                address: cell.coord.address(),
+                row: cell.coord.row,
+                column: cell.coord.column,
+                x: worksheet.column_offset(cell.coord.column) - origin_x,
+                y: worksheet.row_offset(cell.coord.row) - origin_y,
+                width,
+                height,
+                text: format_cell(&cell.value, &style.number_format, workbook.date_1904),
+                value: cell.value.clone(),
+                formula: cell.formula.clone(),
+                style_id: cell.style_id.min(workbook.styles.len().saturating_sub(1)),
+                merged,
+            });
         }
-        let merge = intersecting_merges
-            .iter()
-            .find(|range| range.contains(cell.coord));
-        if merge.is_some_and(|range| range.start != cell.coord) {
-            continue;
-        }
-        let style = workbook.style(cell.style_id);
-        let (width, height, merged) = if let Some(range) = merge {
-            (
-                (range.start.column..=range.end.column)
-                    .map(|column| worksheet.column_width(column))
-                    .sum(),
-                (range.start.row..=range.end.row)
-                    .map(|row| worksheet.row_height(row))
-                    .sum(),
-                true,
-            )
-        } else {
-            (
-                worksheet.column_width(cell.coord.column),
-                worksheet.row_height(cell.coord.row),
-                false,
-            )
-        };
-        cells.push(DisplayCell {
-            address: cell.coord.address(),
-            row: cell.coord.row,
-            column: cell.coord.column,
-            x: worksheet.column_offset(cell.coord.column) - origin_x,
-            y: worksheet.row_offset(cell.coord.row) - origin_y,
-            width,
-            height,
-            text: format_cell(&cell.value, &style.number_format, workbook.date_1904),
-            value: cell.value.clone(),
-            formula: cell.formula.clone(),
-            style_id: cell.style_id.min(workbook.styles.len().saturating_sub(1)),
-            merged,
-        });
     }
 
-    let viewport_width = x;
-    let viewport_height = y;
+    let viewport_width = worksheet.column_offset(column_end) - origin_x;
+    let viewport_height = worksheet.row_offset(row_end) - origin_y;
     let charts = worksheet
         .charts
         .iter()
         .filter_map(|chart| {
             let chart_x = worksheet.column_offset(chart.anchor.column) - origin_x;
             let chart_y = worksheet.row_offset(chart.anchor.row) - origin_y;
-            (chart_x + chart.width >= 0.0
+            let in_scrolling_view = chart_x + chart.width >= 0.0
                 && chart_y + chart.height >= 0.0
                 && chart_x <= viewport_width
-                && chart_y <= viewport_height)
-                .then(|| DisplayChart {
-                    title: chart.title.clone(),
-                    subtitle: chart.subtitle.clone(),
-                    x: chart_x,
-                    y: chart_y,
-                    width: chart.width,
-                    height: chart.height,
-                    points: chart.points.clone(),
-                })
+                && chart_y <= viewport_height;
+            let in_frozen_rows = chart.anchor.row < frozen_row_end
+                && chart_x + chart.width >= 0.0
+                && chart_x <= viewport_width;
+            let in_frozen_columns = chart.anchor.column < frozen_column_end
+                && chart_y + chart.height >= 0.0
+                && chart_y <= viewport_height;
+            (in_scrolling_view || in_frozen_rows || in_frozen_columns).then(|| DisplayChart {
+                title: chart.title.clone(),
+                subtitle: chart.subtitle.clone(),
+                row: chart.anchor.row,
+                column: chart.anchor.column,
+                x: chart_x,
+                y: chart_y,
+                width: chart.width,
+                height: chart.height,
+                points: chart.points.clone(),
+            })
         })
         .collect();
 
@@ -313,7 +347,37 @@ pub fn build_viewport(
         charts,
         styles: workbook.styles.clone(),
         freeze: worksheet.freeze.clone(),
+        show_grid_lines: worksheet.show_grid_lines,
     })
+}
+
+fn axis_union_len(frozen_end: u32, start: u32, end: u32) -> u64 {
+    let overlap_start = start.min(frozen_end);
+    let overlap_end = end.min(frozen_end);
+    let overlap = overlap_end.saturating_sub(overlap_start);
+    u64::from(frozen_end) + u64::from(end - start) - u64::from(overlap)
+}
+
+fn axis_union_ranges(frozen_end: u32, start: u32, end: u32) -> Vec<std::ops::Range<u32>> {
+    if frozen_end == 0 {
+        return vec![start..end];
+    }
+    if start <= frozen_end {
+        return vec![0..end.max(frozen_end)];
+    }
+    vec![0..frozen_end, start..end]
+}
+
+fn axis_union_intersects(
+    range_start: u32,
+    range_end: u32,
+    frozen_end: u32,
+    start: u32,
+    end: u32,
+) -> bool {
+    axis_union_ranges(frozen_end, start, end)
+        .into_iter()
+        .any(|axis| range_end > axis.start && range_start < axis.end)
 }
 
 fn display_merge(
@@ -371,5 +435,19 @@ mod tests {
         assert!(viewport.column_end > viewport.column_start);
         assert!(viewport.row_end > viewport.row_start);
         assert!(viewport.cells.len() < 1_000);
+    }
+
+    #[test]
+    fn carries_frozen_axes_into_scrolled_viewports() {
+        let workbook = demo_workbook();
+        let viewport =
+            build_viewport_for_pixels(&workbook, 0, 900.0, 420.0, 900.0, 500.0, 1).unwrap();
+        assert!(viewport.column_start > 0);
+        assert!(viewport.row_start > 0);
+        assert!(viewport.columns.iter().any(|metric| metric.index == 0));
+        assert!(viewport.rows.iter().any(|metric| metric.index == 0));
+        assert!(viewport.rows.iter().any(|metric| metric.index == 2));
+        assert!(viewport.cells.iter().any(|cell| cell.address == "A1"));
+        assert!(viewport.show_grid_lines);
     }
 }

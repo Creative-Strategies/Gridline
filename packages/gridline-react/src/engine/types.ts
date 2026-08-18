@@ -16,6 +16,7 @@ export type FreezePane = {
 export type SheetMetadata = {
   name: string;
   state: string;
+  showGridLines: boolean;
   rows: number;
   columns: number;
   cellCount: number;
@@ -90,6 +91,8 @@ export type DisplayMerge = {
 export type DisplayChart = {
   title: string;
   subtitle: string;
+  row: number;
+  column: number;
   x: number;
   y: number;
   width: number;
@@ -114,6 +117,7 @@ export type DisplayList = {
   charts: DisplayChart[];
   styles: CellStyle[];
   freeze: FreezePane;
+  showGridLines: boolean;
 };
 
 export type CellSnapshot = {

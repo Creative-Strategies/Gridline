@@ -6,7 +6,11 @@ import type {
   DisplayChart,
   DisplayList,
 } from "../engine/types";
-import { COLUMN_HEADER_HEIGHT, ROW_HEADER_WIDTH } from "./geometry";
+import {
+  COLUMN_HEADER_HEIGHT,
+  ROW_HEADER_WIDTH,
+  frozenPaneSize,
+} from "./geometry";
 
 type PaintOptions = {
   width: number;
@@ -16,6 +20,16 @@ type PaintOptions = {
   zoom: number;
   selected: CellCoord;
   devicePixelRatio: number;
+};
+
+type PaintPane = {
+  rowFrozen: boolean;
+  columnFrozen: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  cover: boolean;
 };
 
 const colors = {
@@ -45,30 +59,85 @@ export function paintWorkbook(
   context.fillStyle = colors.canvas;
   context.fillRect(0, 0, width, height);
 
+  const frozen = frozenPaneSize(display, options.zoom);
+  const splitX = Math.min(width, ROW_HEADER_WIDTH + frozen.width);
+  const splitY = Math.min(height, COLUMN_HEADER_HEIGHT + frozen.height);
+  paintPane(context, display, options, {
+    rowFrozen: false,
+    columnFrozen: false,
+    x: splitX,
+    y: splitY,
+    width: width - splitX,
+    height: height - splitY,
+    cover: false,
+  });
+  if (frozen.height > 0) {
+    paintPane(context, display, options, {
+      rowFrozen: true,
+      columnFrozen: false,
+      x: splitX,
+      y: COLUMN_HEADER_HEIGHT,
+      width: width - splitX,
+      height: frozen.height,
+      cover: true,
+    });
+  }
+  if (frozen.width > 0) {
+    paintPane(context, display, options, {
+      rowFrozen: false,
+      columnFrozen: true,
+      x: ROW_HEADER_WIDTH,
+      y: splitY,
+      width: frozen.width,
+      height: height - splitY,
+      cover: true,
+    });
+  }
+  if (frozen.width > 0 && frozen.height > 0) {
+    paintPane(context, display, options, {
+      rowFrozen: true,
+      columnFrozen: true,
+      x: ROW_HEADER_WIDTH,
+      y: COLUMN_HEADER_HEIGHT,
+      width: frozen.width,
+      height: frozen.height,
+      cover: true,
+    });
+  }
+  paintHeaders(context, display, options);
+}
+
+function paintPane(
+  context: CanvasRenderingContext2D,
+  display: DisplayList,
+  options: PaintOptions,
+  pane: PaintPane,
+) {
+  if (pane.width <= 0 || pane.height <= 0) return;
   context.save();
   context.beginPath();
-  context.rect(
-    ROW_HEADER_WIDTH,
-    COLUMN_HEADER_HEIGHT,
-    width - ROW_HEADER_WIDTH,
-    height - COLUMN_HEADER_HEIGHT,
-  );
+  context.rect(pane.x, pane.y, pane.width, pane.height);
   context.clip();
-  paintGrid(context, display, options);
-  paintCells(context, display, options);
-  for (const chart of display.charts) {
-    paintChart(context, chart, display, options);
+  if (pane.cover) {
+    context.fillStyle = colors.canvas;
+    context.fillRect(pane.x, pane.y, pane.width, pane.height);
   }
-  paintSelection(context, display, options);
+  if (display.showGridLines) paintGrid(context, display, options, pane);
+  paintCells(context, display, options, pane);
+  for (const chart of display.charts) {
+    if (belongsToPane(chart.row, chart.column, display, pane)) {
+      paintChart(context, chart, display, options);
+    }
+  }
+  paintSelection(context, display, options, pane);
   context.restore();
-  paintHeaders(context, display, options);
 }
 
 function screenX(metric: AxisMetric, display: DisplayList, options: PaintOptions) {
   return (
     ROW_HEADER_WIDTH +
     (display.originX + metric.offset) * options.zoom -
-    options.scrollX
+    (metric.index < display.freeze.columns ? 0 : options.scrollX)
   );
 }
 
@@ -76,7 +145,19 @@ function screenY(metric: AxisMetric, display: DisplayList, options: PaintOptions
   return (
     COLUMN_HEADER_HEIGHT +
     (display.originY + metric.offset) * options.zoom -
-    options.scrollY
+    (metric.index < display.freeze.rows ? 0 : options.scrollY)
+  );
+}
+
+function belongsToPane(
+  row: number,
+  column: number,
+  display: DisplayList,
+  pane: PaintPane,
+) {
+  return (
+    (row < display.freeze.rows) === pane.rowFrozen &&
+    (column < display.freeze.columns) === pane.columnFrozen
   );
 }
 
@@ -84,35 +165,43 @@ function paintGrid(
   context: CanvasRenderingContext2D,
   display: DisplayList,
   options: PaintOptions,
+  pane: PaintPane,
 ) {
   context.strokeStyle = colors.grid;
   context.lineWidth = 1;
   context.beginPath();
-  for (const column of display.columns) {
+  const columns = display.columns.filter(
+    (column) =>
+      (column.index < display.freeze.columns) === pane.columnFrozen,
+  );
+  for (const column of columns) {
     const x = crisp(screenX(column, display, options));
-    context.moveTo(x, COLUMN_HEADER_HEIGHT);
-    context.lineTo(x, options.height);
+    context.moveTo(x, pane.y);
+    context.lineTo(x, pane.y + pane.height);
   }
-  const lastColumn = display.columns.at(-1);
+  const lastColumn = columns.at(-1);
   if (lastColumn) {
     const x = crisp(
       screenX(lastColumn, display, options) + lastColumn.size * options.zoom,
     );
-    context.moveTo(x, COLUMN_HEADER_HEIGHT);
-    context.lineTo(x, options.height);
+    context.moveTo(x, pane.y);
+    context.lineTo(x, pane.y + pane.height);
   }
-  for (const row of display.rows) {
+  const rows = display.rows.filter(
+    (row) => (row.index < display.freeze.rows) === pane.rowFrozen,
+  );
+  for (const row of rows) {
     const y = crisp(screenY(row, display, options));
-    context.moveTo(ROW_HEADER_WIDTH, y);
-    context.lineTo(options.width, y);
+    context.moveTo(pane.x, y);
+    context.lineTo(pane.x + pane.width, y);
   }
-  const lastRow = display.rows.at(-1);
+  const lastRow = rows.at(-1);
   if (lastRow) {
     const y = crisp(
       screenY(lastRow, display, options) + lastRow.size * options.zoom,
     );
-    context.moveTo(ROW_HEADER_WIDTH, y);
-    context.lineTo(options.width, y);
+    context.moveTo(pane.x, y);
+    context.lineTo(pane.x + pane.width, y);
   }
   context.stroke();
 }
@@ -121,11 +210,19 @@ function paintCells(
   context: CanvasRenderingContext2D,
   display: DisplayList,
   options: PaintOptions,
+  pane: PaintPane,
 ) {
   for (const cell of display.cells) {
+    if (!belongsToPane(cell.row, cell.column, display, pane)) continue;
     const style = display.styles[cell.styleId] ?? display.styles[0];
-    const x = ROW_HEADER_WIDTH + (display.originX + cell.x) * options.zoom - options.scrollX;
-    const y = COLUMN_HEADER_HEIGHT + (display.originY + cell.y) * options.zoom - options.scrollY;
+    const x =
+      ROW_HEADER_WIDTH +
+      (display.originX + cell.x) * options.zoom -
+      (cell.column < display.freeze.columns ? 0 : options.scrollX);
+    const y =
+      COLUMN_HEADER_HEIGHT +
+      (display.originY + cell.y) * options.zoom -
+      (cell.row < display.freeze.rows ? 0 : options.scrollY);
     const width = cell.width * options.zoom;
     const height = cell.height * options.zoom;
     if (style.fill || cell.merged) {
@@ -280,8 +377,14 @@ function paintChart(
   display: DisplayList,
   options: PaintOptions,
 ) {
-  const x = ROW_HEADER_WIDTH + (display.originX + chart.x) * options.zoom - options.scrollX;
-  const y = COLUMN_HEADER_HEIGHT + (display.originY + chart.y) * options.zoom - options.scrollY;
+  const x =
+    ROW_HEADER_WIDTH +
+    (display.originX + chart.x) * options.zoom -
+    (chart.column < display.freeze.columns ? 0 : options.scrollX);
+  const y =
+    COLUMN_HEADER_HEIGHT +
+    (display.originY + chart.y) * options.zoom -
+    (chart.row < display.freeze.rows ? 0 : options.scrollY);
   const width = chart.width * options.zoom;
   const height = chart.height * options.zoom;
   context.fillStyle = colors.canvas;
@@ -329,7 +432,18 @@ function paintSelection(
   context: CanvasRenderingContext2D,
   display: DisplayList,
   options: PaintOptions,
+  pane: PaintPane,
 ) {
+  if (
+    !belongsToPane(
+      options.selected.row,
+      options.selected.column,
+      display,
+      pane,
+    )
+  ) {
+    return;
+  }
   const column = display.columns.find((metric) => metric.index === options.selected.column);
   const row = display.rows.find((metric) => metric.index === options.selected.row);
   if (!column || !row) return;
@@ -352,20 +466,99 @@ function paintHeaders(
   display: DisplayList,
   options: PaintOptions,
 ) {
+  const frozen = frozenPaneSize(display, options.zoom);
+  const splitX = Math.min(options.width, ROW_HEADER_WIDTH + frozen.width);
+  const splitY = Math.min(options.height, COLUMN_HEADER_HEIGHT + frozen.height);
   context.fillStyle = colors.chrome;
   context.fillRect(0, 0, options.width, COLUMN_HEADER_HEIGHT);
   context.fillRect(0, 0, ROW_HEADER_WIDTH, options.height);
-  context.fillStyle = "#edf1f4";
+  context.font = "500 12px Inter, sans-serif";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  paintColumnHeaders(
+    context,
+    display,
+    options,
+    false,
+    splitX,
+    Math.max(0, options.width - splitX),
+  );
+  if (frozen.width > 0) {
+    paintColumnHeaders(
+      context,
+      display,
+      options,
+      true,
+      ROW_HEADER_WIDTH,
+      frozen.width,
+    );
+  }
+  paintRowHeaders(
+    context,
+    display,
+    options,
+    false,
+    splitY,
+    Math.max(0, options.height - splitY),
+  );
+  if (frozen.height > 0) {
+    paintRowHeaders(
+      context,
+      display,
+      options,
+      true,
+      COLUMN_HEADER_HEIGHT,
+      frozen.height,
+    );
+  }
+  context.fillStyle = colors.chrome;
+  context.fillRect(0, 0, ROW_HEADER_WIDTH, COLUMN_HEADER_HEIGHT);
+  context.strokeStyle = colors.grid;
+  context.lineWidth = 1;
+  context.strokeRect(0.5, 0.5, ROW_HEADER_WIDTH, COLUMN_HEADER_HEIGHT);
+  context.fillStyle = "#d5dce2";
   context.beginPath();
   context.moveTo(ROW_HEADER_WIDTH - 6, 7);
   context.lineTo(ROW_HEADER_WIDTH - 6, COLUMN_HEADER_HEIGHT - 6);
   context.lineTo(ROW_HEADER_WIDTH - 22, COLUMN_HEADER_HEIGHT - 6);
   context.closePath();
   context.fill();
-  context.font = "500 12px Inter, sans-serif";
-  context.textAlign = "center";
-  context.textBaseline = "middle";
+
+  if (frozen.width > 0) {
+    context.strokeStyle = "#aeb7c0";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(crisp(splitX), COLUMN_HEADER_HEIGHT);
+    context.lineTo(crisp(splitX), options.height);
+    context.stroke();
+  }
+  if (frozen.height > 0) {
+    context.strokeStyle = "#aeb7c0";
+    context.lineWidth = 2;
+    context.beginPath();
+    context.moveTo(ROW_HEADER_WIDTH, crisp(splitY));
+    context.lineTo(options.width, crisp(splitY));
+    context.stroke();
+  }
+}
+
+function paintColumnHeaders(
+  context: CanvasRenderingContext2D,
+  display: DisplayList,
+  options: PaintOptions,
+  frozen: boolean,
+  clipX: number,
+  clipWidth: number,
+) {
+  if (clipWidth <= 0) return;
+  context.save();
+  context.beginPath();
+  context.rect(clipX, 0, clipWidth, COLUMN_HEADER_HEIGHT);
+  context.clip();
+  context.fillStyle = colors.chrome;
+  context.fillRect(clipX, 0, clipWidth, COLUMN_HEADER_HEIGHT);
   for (const column of display.columns) {
+    if ((column.index < display.freeze.columns) !== frozen) continue;
     const x = screenX(column, display, options);
     const width = column.size * options.zoom;
     if (column.index === options.selected.column) {
@@ -377,9 +570,29 @@ function paintHeaders(
     context.fillStyle = column.index === options.selected.column ? colors.green : colors.text;
     context.fillText(column.label, x + width / 2, COLUMN_HEADER_HEIGHT / 2);
     context.strokeStyle = colors.grid;
+    context.lineWidth = 1;
     context.strokeRect(crisp(x), 0.5, width, COLUMN_HEADER_HEIGHT);
   }
+  context.restore();
+}
+
+function paintRowHeaders(
+  context: CanvasRenderingContext2D,
+  display: DisplayList,
+  options: PaintOptions,
+  frozen: boolean,
+  clipY: number,
+  clipHeight: number,
+) {
+  if (clipHeight <= 0) return;
+  context.save();
+  context.beginPath();
+  context.rect(0, clipY, ROW_HEADER_WIDTH, clipHeight);
+  context.clip();
+  context.fillStyle = colors.chrome;
+  context.fillRect(0, clipY, ROW_HEADER_WIDTH, clipHeight);
   for (const row of display.rows) {
+    if ((row.index < display.freeze.rows) !== frozen) continue;
     const y = screenY(row, display, options);
     const height = row.size * options.zoom;
     if (row.index === options.selected.row) {
@@ -389,35 +602,10 @@ function paintHeaders(
     context.fillStyle = row.index === options.selected.row ? colors.green : colors.text;
     context.fillText(row.label, ROW_HEADER_WIDTH / 2, y + height / 2);
     context.strokeStyle = colors.grid;
+    context.lineWidth = 1;
     context.strokeRect(0.5, crisp(y), ROW_HEADER_WIDTH, height);
   }
-  context.fillStyle = colors.chrome;
-  context.fillRect(0, 0, ROW_HEADER_WIDTH, COLUMN_HEADER_HEIGHT);
-  context.strokeStyle = colors.grid;
-  context.strokeRect(0.5, 0.5, ROW_HEADER_WIDTH, COLUMN_HEADER_HEIGHT);
-
-  const freezeColumn = display.columns.find(
-    (metric) => metric.index === display.freeze.columns,
-  );
-  if (display.freeze.columns > 0 && freezeColumn) {
-    const x = screenX(freezeColumn, display, options);
-    context.strokeStyle = "#aeb7c0";
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(crisp(x), COLUMN_HEADER_HEIGHT);
-    context.lineTo(crisp(x), options.height);
-    context.stroke();
-  }
-  const freezeRow = display.rows.find((metric) => metric.index === display.freeze.rows);
-  if (display.freeze.rows > 0 && freezeRow) {
-    const y = screenY(freezeRow, display, options);
-    context.strokeStyle = "#aeb7c0";
-    context.lineWidth = 2;
-    context.beginPath();
-    context.moveTo(ROW_HEADER_WIDTH, crisp(y));
-    context.lineTo(options.width, crisp(y));
-    context.stroke();
-  }
+  context.restore();
 }
 
 function crisp(value: number) {

@@ -38,11 +38,45 @@ export function hitTestCell(
   zoom: number,
 ): CellCoord | null {
   if (x < ROW_HEADER_WIDTH || y < COLUMN_HEADER_HEIGHT) return null;
-  const absoluteX = (x - ROW_HEADER_WIDTH + scrollX) / zoom;
-  const absoluteY = (y - COLUMN_HEADER_HEIGHT + scrollY) / zoom;
+  const frozen = frozenPaneSize(display, zoom);
+  const frozenColumn =
+    display.freeze.columns > 0 && x < ROW_HEADER_WIDTH + frozen.width;
+  const frozenRow =
+    display.freeze.rows > 0 && y < COLUMN_HEADER_HEIGHT + frozen.height;
+  const absoluteX =
+    (x - ROW_HEADER_WIDTH + (frozenColumn ? 0 : scrollX)) / zoom;
+  const absoluteY =
+    (y - COLUMN_HEADER_HEIGHT + (frozenRow ? 0 : scrollY)) / zoom;
   const column = findAxisMetric(display.columns, absoluteX - display.originX);
   const row = findAxisMetric(display.rows, absoluteY - display.originY);
   return column && row ? { row: row.index, column: column.index } : null;
+}
+
+export function frozenPaneSize(display: DisplayList, zoom: number) {
+  const frozenColumn = lastFrozenMetric(
+    display.columns,
+    display.freeze.columns,
+  );
+  const frozenRow = lastFrozenMetric(display.rows, display.freeze.rows);
+  return {
+    width: frozenColumn
+      ? (display.originX + frozenColumn.offset + frozenColumn.size) * zoom
+      : 0,
+    height: frozenRow
+      ? (display.originY + frozenRow.offset + frozenRow.size) * zoom
+      : 0,
+  };
+}
+
+function lastFrozenMetric(
+  metrics: DisplayList["columns"],
+  frozenCount: number,
+) {
+  for (let index = metrics.length - 1; index >= 0; index -= 1) {
+    const metric = metrics[index];
+    if (metric.index < frozenCount && metric.size > 0) return metric;
+  }
+  return undefined;
 }
 
 /**

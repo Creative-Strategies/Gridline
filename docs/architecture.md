@@ -27,8 +27,8 @@ The engine is “from scratch” at the spreadsheet layer: Gridline owns the wor
 
 - Workbook/sheet relationships and visibility.
 - Shared strings, inline strings, booleans, numbers, errors, formulas, and cached formula values.
-- Fonts, solid fills, borders, alignments, built-in/custom number formats, row heights, and column widths.
-- Merged cells and frozen panes.
+- Fonts, solid fills, borders, alignments, built-in/custom number formats, row heights, column widths, and hidden row/column dimensions.
+- Merged cells, worksheet gridline visibility, and truly pinned frozen row/column panes across scrolling, selection, and hit-testing.
 - Sparse, virtualized viewport extraction, address lookup, text search, and CSV export.
 - Workbook-wide formula dependencies, quoted/unquoted cross-sheet references, absolute references, comparisons, text literals, arithmetic, and the bounded `IF`, `ABS`, `SUM`, `AVERAGE`, `MIN`, `MAX`, `COUNT`, `COUNTA`, `COUNTBLANK`, `COUNTIF`, and `COUNTIFS` subset when a cached value is unavailable.
 - First-series line-chart extraction from worksheet drawing relationships, including Atlas-style nested chart parts and cell-backed categories/values.
