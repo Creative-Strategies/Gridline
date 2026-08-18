@@ -1,14 +1,9 @@
-import dynamic from "next/dynamic";
-
-const GridlineViewer = dynamic(
-  () => import("@gridline/react").then((module) => module.GridlineViewer),
-  { ssr: false },
-);
+import { ViewerClient } from "./ViewerClient";
 
 export default function Home() {
   return (
     <main>
-      <GridlineViewer className="demo-viewer" />
+      <ViewerClient />
     </main>
   );
 }

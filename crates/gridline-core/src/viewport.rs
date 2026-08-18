@@ -1,11 +1,92 @@
 use crate::format::format_cell;
 use crate::model::{
-    CellCoord, CellStyle, CellValue, ChartPoint, MergeRange, Workbook, column_label,
+    CellCoord, CellStyle, CellValue, ChartPoint, FreezePane, MergeRange, Workbook, column_label,
 };
 use crate::{GridlineError, Result};
 use serde::Serialize;
 
 const MAX_VIEWPORT_CELLS: u64 = 60_000;
+
+pub fn build_viewport_for_pixels(
+    workbook: &Workbook,
+    sheet: usize,
+    scroll_x: f32,
+    scroll_y: f32,
+    width: f32,
+    height: f32,
+    overscan: u32,
+) -> Result<DisplayList> {
+    let worksheet = workbook
+        .sheets
+        .get(sheet)
+        .ok_or(GridlineError::SheetOutOfRange(sheet))?;
+    if !scroll_x.is_finite()
+        || !scroll_y.is_finite()
+        || !width.is_finite()
+        || !height.is_finite()
+        || width <= 0.0
+        || height <= 0.0
+    {
+        return Err(GridlineError::ResourceLimit(
+            "pixel viewport must use finite positive dimensions".into(),
+        ));
+    }
+    let column_start = axis_index_at(scroll_x.max(0.0), |index| worksheet.column_width(index))
+        .saturating_sub(overscan.min(32));
+    let row_start = axis_index_at(scroll_y.max(0.0), |index| worksheet.row_height(index))
+        .saturating_sub(overscan.min(128));
+    let column_end = axis_end_at(
+        column_start,
+        scroll_x.max(0.0) + width,
+        |index| worksheet.column_width(index),
+        16_384,
+    )
+    .saturating_add(overscan.min(32))
+    .min(16_384);
+    let row_end = axis_end_at(
+        row_start,
+        scroll_y.max(0.0) + height,
+        |index| worksheet.row_height(index),
+        1_048_576,
+    )
+    .saturating_add(overscan.min(128))
+    .min(1_048_576);
+    build_viewport(
+        workbook,
+        sheet,
+        row_start,
+        row_end.max(row_start + 1),
+        column_start,
+        column_end.max(column_start + 1),
+    )
+}
+
+fn axis_index_at(mut offset: f32, size: impl Fn(u32) -> f32) -> u32 {
+    let mut index = 0u32;
+    while index < 1_048_576 {
+        let current = size(index);
+        if current > 0.0 && offset < current {
+            break;
+        }
+        offset -= current;
+        index += 1;
+    }
+    index
+}
+
+fn axis_end_at(start: u32, absolute_end: f32, size: impl Fn(u32) -> f32, limit: u32) -> u32 {
+    let mut index = 0u32;
+    let mut offset = 0.0;
+    while index < start && index < limit {
+        offset += size(index);
+        index += 1;
+    }
+    while index < limit && offset < absolute_end {
+        offset += size(index);
+        index += 1;
+    }
+    index
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +155,7 @@ pub struct DisplayList {
     pub merges: Vec<DisplayMerge>,
     pub charts: Vec<DisplayChart>,
     pub styles: Vec<CellStyle>,
+    pub freeze: FreezePane,
 }
 
 pub fn build_viewport(
@@ -230,6 +312,7 @@ pub fn build_viewport(
         merges,
         charts,
         styles: workbook.styles.clone(),
+        freeze: worksheet.freeze.clone(),
     })
 }
 
@@ -278,5 +361,15 @@ mod tests {
     fn rejects_oversized_viewports() {
         let workbook = demo_workbook();
         assert!(build_viewport(&workbook, 0, 0, 1_000, 0, 1_000).is_err());
+    }
+
+    #[test]
+    fn derives_ranges_from_pixel_scroll() {
+        let workbook = demo_workbook();
+        let viewport =
+            build_viewport_for_pixels(&workbook, 0, 180.0, 120.0, 900.0, 500.0, 2).unwrap();
+        assert!(viewport.column_end > viewport.column_start);
+        assert!(viewport.row_end > viewport.row_start);
+        assert!(viewport.cells.len() < 1_000);
     }
 }

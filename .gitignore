@@ -1,5 +1,6 @@
 node_modules/
 .next/
+*.tsbuildinfo
 dist/
 coverage/
 target/
@@ -7,4 +8,3 @@ packages/gridline-wasm/pkg/
 work/
 .DS_Store
 *.log
-

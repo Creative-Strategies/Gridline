@@ -62,6 +62,29 @@ impl WorkbookHandle {
         serde_wasm_bindgen::to_value(&display_list).map_err(js_error)
     }
 
+    #[wasm_bindgen(js_name = viewportAt)]
+    pub fn viewport_at(
+        &self,
+        sheet: usize,
+        scroll_x: f32,
+        scroll_y: f32,
+        width: f32,
+        height: f32,
+        overscan: u32,
+    ) -> std::result::Result<JsValue, JsValue> {
+        let display_list = viewport::build_viewport_for_pixels(
+            &self.workbook,
+            sheet,
+            scroll_x,
+            scroll_y,
+            width,
+            height,
+            overscan,
+        )
+        .map_err(js_error)?;
+        serde_wasm_bindgen::to_value(&display_list).map_err(js_error)
+    }
+
     pub fn cell(&self, sheet: usize, address: &str) -> std::result::Result<JsValue, JsValue> {
         let cell = self
             .workbook

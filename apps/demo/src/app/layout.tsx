@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import { siteDescription, siteTitle } from "./site-metadata";
 
 export const metadata: Metadata = {
-  title: "Gridline · WASM workbook viewer",
-  description: "A local-first XLSX rendering engine for Next.js.",
+  title: siteTitle,
+  description: siteDescription,
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
@@ -14,4 +15,3 @@ export default function RootLayout({ children }: Readonly<{ children: ReactNode 
     </html>
   );
 }
-
