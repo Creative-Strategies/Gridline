@@ -104,6 +104,7 @@ export function paintWorkbook(
       cover: true,
     });
   }
+  paintCharts(context, display, options);
   paintHeaders(context, display, options);
 }
 
@@ -124,11 +125,6 @@ function paintPane(
   }
   if (display.showGridLines) paintGrid(context, display, options, pane);
   paintCells(context, display, options, pane);
-  for (const chart of display.charts) {
-    if (belongsToPane(chart.row, chart.column, display, pane)) {
-      paintChart(context, chart, display, options);
-    }
-  }
   paintSelection(context, display, options, pane);
   context.restore();
 }
@@ -159,6 +155,23 @@ function belongsToPane(
     (row < display.freeze.rows) === pane.rowFrozen &&
     (column < display.freeze.columns) === pane.columnFrozen
   );
+}
+
+function cellIntersectsPane(
+  cell: DisplayList["cells"][number],
+  display: DisplayList,
+  pane: PaintPane,
+) {
+  const frozen = frozenPaneSize(display, 1);
+  const x = display.originX + cell.x;
+  const y = display.originY + cell.y;
+  const intersectsColumns = pane.columnFrozen
+    ? x < frozen.width
+    : x + cell.width > frozen.width;
+  const intersectsRows = pane.rowFrozen
+    ? y < frozen.height
+    : y + cell.height > frozen.height;
+  return intersectsColumns && intersectsRows;
 }
 
 function paintGrid(
@@ -213,16 +226,16 @@ function paintCells(
   pane: PaintPane,
 ) {
   for (const cell of display.cells) {
-    if (!belongsToPane(cell.row, cell.column, display, pane)) continue;
+    if (!cellIntersectsPane(cell, display, pane)) continue;
     const style = display.styles[cell.styleId] ?? display.styles[0];
     const x =
       ROW_HEADER_WIDTH +
       (display.originX + cell.x) * options.zoom -
-      (cell.column < display.freeze.columns ? 0 : options.scrollX);
+      (pane.columnFrozen ? 0 : options.scrollX);
     const y =
       COLUMN_HEADER_HEIGHT +
       (display.originY + cell.y) * options.zoom -
-      (cell.row < display.freeze.rows ? 0 : options.scrollY);
+      (pane.rowFrozen ? 0 : options.scrollY);
     const width = cell.width * options.zoom;
     const height = cell.height * options.zoom;
     if (style.fill || cell.merged) {
@@ -371,6 +384,26 @@ function paintBorders(
   }
 }
 
+function paintCharts(
+  context: CanvasRenderingContext2D,
+  display: DisplayList,
+  options: PaintOptions,
+) {
+  context.save();
+  context.beginPath();
+  context.rect(
+    ROW_HEADER_WIDTH,
+    COLUMN_HEADER_HEIGHT,
+    options.width - ROW_HEADER_WIDTH,
+    options.height - COLUMN_HEADER_HEIGHT,
+  );
+  context.clip();
+  for (const chart of display.charts) {
+    paintChart(context, chart, display, options);
+  }
+  context.restore();
+}
+
 function paintChart(
   context: CanvasRenderingContext2D,
   chart: DisplayChart,
@@ -434,24 +467,32 @@ function paintSelection(
   options: PaintOptions,
   pane: PaintPane,
 ) {
-  if (
-    !belongsToPane(
-      options.selected.row,
-      options.selected.column,
-      display,
-      pane,
-    )
-  ) {
-    return;
-  }
   const column = display.columns.find((metric) => metric.index === options.selected.column);
   const row = display.rows.find((metric) => metric.index === options.selected.row);
   if (!column || !row) return;
   const selectedCell = display.cells.find(
     (cell) => cell.row === options.selected.row && cell.column === options.selected.column,
   );
-  const x = screenX(column, display, options);
-  const y = screenY(row, display, options);
+  if (
+    selectedCell
+      ? !cellIntersectsPane(selectedCell, display, pane)
+      : !belongsToPane(
+          options.selected.row,
+          options.selected.column,
+          display,
+          pane,
+        )
+  ) {
+    return;
+  }
+  const x =
+    ROW_HEADER_WIDTH +
+    (display.originX + column.offset) * options.zoom -
+    (pane.columnFrozen ? 0 : options.scrollX);
+  const y =
+    COLUMN_HEADER_HEIGHT +
+    (display.originY + row.offset) * options.zoom -
+    (pane.rowFrozen ? 0 : options.scrollY);
   const width = (selectedCell?.width ?? column.size) * options.zoom;
   const height = (selectedCell?.height ?? row.size) * options.zoom;
   context.strokeStyle = colors.green;

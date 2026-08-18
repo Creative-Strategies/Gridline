@@ -28,16 +28,48 @@ describe("canvas text layout", () => {
 
 describe("worksheet presentation", () => {
   it("suppresses default cell gridlines while retaining sheet chrome", () => {
-    const hidden = renderLineSegments(false);
-    const visible = renderLineSegments(true);
+    const hidden = renderWorksheet(false).lineSegments;
+    const visible = renderWorksheet(true).lineSegments;
 
     expect(hidden.some(([, y]) => y === 120)).toBe(false);
     expect(visible.some(([, y]) => y === 120)).toBe(true);
   });
+
+  it("paints merged headings through a frozen-column boundary", () => {
+    const { texts } = renderWorksheet(true, {
+      columns: [
+        { index: 0, label: "A", offset: 0, size: 100 },
+        { index: 1, label: "B", offset: 100, size: 100 },
+      ],
+      rows: [{ index: 0, label: "1", offset: 0, size: 40 }],
+      cells: [
+        {
+          address: "A1",
+          row: 0,
+          column: 0,
+          x: 0,
+          y: 0,
+          width: 200,
+          height: 40,
+          text: "Operating plan",
+          value: { kind: "string", value: "Operating plan" },
+          styleId: 0,
+          merged: true,
+        },
+      ],
+      freeze: { rows: 1, columns: 1 },
+    });
+
+    expect(texts.filter((text) => text === "Operating plan")).toHaveLength(2);
+  });
 });
 
-function renderLineSegments(showGridLines: boolean) {
+function renderWorksheet(
+  showGridLines: boolean,
+  overrides: Partial<DisplayList> = {},
+) {
   const lineSegments: number[][] = [];
+  const texts: string[] = [];
   const context = new Proxy(
     {
       measureText: (line: string) => ({ width: line.length * 7 }),
@@ -46,6 +78,9 @@ function renderLineSegments(showGridLines: boolean) {
       get(target, property) {
         if (property === "lineTo") {
           return (x: number, y: number) => lineSegments.push([x, y]);
+        }
+        if (property === "fillText") {
+          return (value: string) => texts.push(value);
         }
         const value = Reflect.get(target, property);
         if (value !== undefined) return value;
@@ -87,6 +122,7 @@ function renderLineSegments(showGridLines: boolean) {
     styles: [style],
     freeze: { rows: 0, columns: 0 },
     showGridLines,
+    ...overrides,
   } satisfies DisplayList;
 
   paintWorkbook(canvas, display, {
@@ -98,5 +134,5 @@ function renderLineSegments(showGridLines: boolean) {
     selected: { row: 2, column: 2 },
     devicePixelRatio: 1,
   });
-  return lineSegments;
+  return { lineSegments, texts };
 }
