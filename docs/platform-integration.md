@@ -62,7 +62,7 @@ The controller exposes `open`, `reload`, `cancel`, `unlock`, `selectCell`, `setA
 
 Gridline supports three browser-side paths:
 
-- Password-protected Office OOXML (`.xlsx`/`.xlsm` stored in an OLE encrypted container). Standard and Agile ECMA-376 encryption are decrypted inside WASM. A password can be supplied as `officePassword`, through `passwordProvider`, through the built-in unlock dialog, or with `controller.unlock(password)`.
+- Password-protected Office OOXML (`.xlsx`/`.xlsm` stored in an OLE encrypted container). Standard and the common SHA-512 Agile ECMA-376 profiles are decrypted inside WASM; unsupported profiles return `UNSUPPORTED_ENCRYPTION`. A password can be supplied as `officePassword`, through `passwordProvider`, through the built-in unlock dialog, or with `controller.unlock(password)`.
 - Gridline envelopes. `encryptGridlineDocument` creates a versioned AES-256-GCM container with PBKDF2-SHA-256 password derivation and authenticated filename/MIME metadata. Pass `{ encryption: { type: "gridline", password } }` to reopen it.
 - Platform encryption. Use the built-in `aes-gcm` source descriptor with a Web Crypto key and IV, or a `custom` decrypt callback for KMS-wrapped keys and proprietary envelopes.
 
