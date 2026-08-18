@@ -5,9 +5,22 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type DragEvent,
+  type FormEvent,
 } from "react";
-import type { CellCoord, CellSnapshot } from "../engine/types";
+import { encryptGridlineDocument } from "../engine/crypto";
+import type { GridlineController } from "../engine/GridlineController";
+import type { GridlineError } from "../engine/errors";
+import type {
+  GridlineLoadProgress,
+  GridlineSource,
+} from "../engine/source";
+import type {
+  CellCoord,
+  CellSnapshot,
+  WorkbookMetadata,
+} from "../engine/types";
 import { useWorkbookEngine } from "../engine/useWorkbookEngine";
 import {
   FormulaBar,
@@ -21,25 +34,51 @@ import { WorkbookCanvas } from "./WorkbookCanvas";
 import { cellAddress } from "./geometry";
 import "./gridline.css";
 
+export type GridlinePasswordRequest = {
+  error: GridlineError;
+  document: { name: string; encrypted: boolean } | null;
+};
+
 export type GridlineViewerProps = {
   className?: string;
+  source?: GridlineSource;
+  controller?: GridlineController;
+  autoLoadDemo?: boolean;
   initialFile?: File;
   initialZoom?: number;
-  onError?: (error: Error) => void;
+  maxSourceBytes?: number;
+  fetcher?: typeof fetch;
+  passwordProvider?: (request: GridlinePasswordRequest) => Promise<string | null>;
+  onError?: (error: GridlineError) => void;
+  onLoadProgress?: (progress: GridlineLoadProgress) => void;
   onWorkbookOpen?: (file: File) => void;
+  onWorkbookReady?: (event: {
+    metadata: WorkbookMetadata;
+    source: GridlineSource;
+  }) => void;
 };
 
 const initialSelection: CellCoord = { row: 7, column: 2 };
 
 export function GridlineViewer({
   className,
+  source,
+  controller,
+  autoLoadDemo = source ? false : true,
   initialFile,
   initialZoom = 1,
+  maxSourceBytes,
+  fetcher,
+  passwordProvider,
   onError,
+  onLoadProgress,
   onWorkbookOpen,
+  onWorkbookReady,
 }: GridlineViewerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const openedInitialFileRef = useRef(false);
+  const lastSourceRef = useRef<GridlineSource | undefined>(undefined);
+  const passwordRequestRef = useRef<GridlineError | null>(null);
   const [activeSheet, setActiveSheet] = useState(0);
   const [selected, setSelected] = useState<CellCoord>(initialSelection);
   const [selectedCell, setSelectedCell] = useState<CellSnapshot | null>(null);
@@ -47,28 +86,42 @@ export function GridlineViewer({
   const [railOpen, setRailOpen] = useState(true);
   const [dragging, setDragging] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
+  const [encryptionDialogOpen, setEncryptionDialogOpen] = useState(false);
   const {
     metadata,
     status,
     error: engineError,
+    progress,
+    document,
+    openSource: engineOpenSource,
     openFile: engineOpenFile,
+    reload,
+    unlock,
+    cancel,
     viewport,
     cell,
     exportCsv,
-  } = useWorkbookEngine(onError);
+    getOriginalBlob,
+  } = useWorkbookEngine({
+    autoLoadDemo,
+    maxSourceBytes,
+    fetcher,
+    onError,
+    onProgress: onLoadProgress,
+  });
 
   useEffect(() => {
-    if (!metadata || status === "booting") return;
+    if (!metadata || status === "booting" || activeSheet >= metadata.sheets.length) return;
     let current = true;
     cell(activeSheet, cellAddress(selected))
-      .then((cell) => {
-        if (current) setSelectedCell(cell);
+      .then((snapshot) => {
+        if (current) setSelectedCell(snapshot);
       })
       .catch((cause) => {
         const error = cause instanceof Error ? cause : new Error(String(cause));
         if (current) {
           setTransientError(error.message);
-          onError?.(error);
+          onError?.(error as GridlineError);
         }
       });
     return () => {
@@ -76,20 +129,75 @@ export function GridlineViewer({
     };
   }, [activeSheet, cell, metadata, onError, selected, status]);
 
+  const resetNavigation = useCallback(() => {
+    setActiveSheet(0);
+    setSelected(initialSelection);
+  }, []);
+
+  const openSource = useCallback(
+    async (nextSource: GridlineSource) => {
+      setTransientError(null);
+      const next = await engineOpenSource(nextSource);
+      resetNavigation();
+      onWorkbookReady?.({ metadata: next, source: nextSource });
+      return next;
+    },
+    [engineOpenSource, onWorkbookReady, resetNavigation],
+  );
+
   const openFile = useCallback(
     async (file: File) => {
       setTransientError(null);
       try {
-        await engineOpenFile(file);
-        setActiveSheet(0);
-        setSelected(initialSelection);
+        const next = await engineOpenFile(file);
+        resetNavigation();
         onWorkbookOpen?.(file);
+        onWorkbookReady?.({
+          metadata: next,
+          source: { type: "file", file, name: file.name, mimeType: file.type },
+        });
+        return next;
       } catch {
-        // The engine hook already exposes and reports a normalized error.
+        return null;
       }
     },
-    [engineOpenFile, onWorkbookOpen],
+    [engineOpenFile, onWorkbookOpen, onWorkbookReady, resetNavigation],
   );
+
+  useEffect(() => {
+    if (!source || status === "booting" || lastSourceRef.current === source) return;
+    lastSourceRef.current = source;
+    void openSource(source).catch(() => undefined);
+  }, [openSource, source, status]);
+
+  useEffect(() => {
+    if (!initialFile || openedInitialFileRef.current || status === "booting") return;
+    openedInitialFileRef.current = true;
+    void openFile(initialFile);
+  }, [initialFile, openFile, status]);
+
+  useEffect(() => {
+    if (
+      status !== "locked" ||
+      !engineError ||
+      engineError.code !== "PASSWORD_REQUIRED" ||
+      !passwordProvider ||
+      passwordRequestRef.current === engineError
+    ) {
+      return;
+    }
+    passwordRequestRef.current = engineError;
+    let active = true;
+    void passwordProvider({
+      error: engineError,
+      document: document ? { name: document.name, encrypted: document.encrypted } : null,
+    }).then((password) => {
+      if (active && password) void unlock(password).catch(() => undefined);
+    });
+    return () => {
+      active = false;
+    };
+  }, [document, engineError, passwordProvider, status, unlock]);
 
   const handleDrop = useCallback(
     (event: DragEvent) => {
@@ -101,45 +209,106 @@ export function GridlineViewer({
     [openFile],
   );
 
-  useEffect(() => {
-    if (!initialFile || openedInitialFileRef.current || status !== "ready") {
-      return;
-    }
-    openedInitialFileRef.current = true;
-    void openFile(initialFile);
-  }, [initialFile, openFile, status]);
+  const handleExport = useCallback(
+    async (sheet = activeSheet) => {
+      if (!metadata) return "";
+      try {
+        const csv = await exportCsv(sheet);
+        downloadBlob(
+          new Blob([csv], { type: "text/csv;charset=utf-8" }),
+          `${metadata.sheets[sheet]?.name ?? "sheet"}.csv`,
+        );
+        return csv;
+      } catch (cause) {
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        setTransientError(error.message);
+        onError?.(error as GridlineError);
+        throw error;
+      }
+    },
+    [activeSheet, exportCsv, metadata, onError],
+  );
 
-  const handleExport = useCallback(async () => {
-    if (!metadata) return;
-    try {
-      const csv = await exportCsv(activeSheet);
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${metadata.sheets[activeSheet]?.name ?? "sheet"}.csv`;
-      anchor.click();
-      URL.revokeObjectURL(url);
-    } catch (cause) {
-      const error = cause instanceof Error ? cause : new Error(String(cause));
-      setTransientError(error.message);
-      onError?.(error);
-    }
-  }, [activeSheet, exportCsv, metadata, onError]);
+  const downloadOriginal = useCallback(() => {
+    const blob = getOriginalBlob();
+    if (!blob || !document) return;
+    downloadBlob(blob, document.name);
+  }, [document, getOriginalBlob]);
+
+  const downloadEncrypted = useCallback(
+    async (password: string) => {
+      const blob = getOriginalBlob();
+      if (!blob || !document) {
+        throw new Error("Open a workbook before creating an encrypted download");
+      }
+      const encrypted = await encryptGridlineDocument(blob, password, {
+        filename: document.name,
+        mimeType: document.mimeType,
+      });
+      downloadBlob(encrypted.blob, encrypted.filename);
+      return encrypted;
+    },
+    [document, getOriginalBlob],
+  );
+
+  useEffect(() => {
+    if (!controller) return;
+    return controller.bind({
+      open: openSource,
+      reload,
+      cancel,
+      unlock,
+      selectCell: setSelected,
+      setActiveSheet: (sheet) => {
+        if (metadata && sheet >= 0 && sheet < metadata.sheets.length) setActiveSheet(sheet);
+      },
+      setZoom: (next) => setZoom(Math.max(0.5, Math.min(2, next))),
+      exportCsv: async (sheet = activeSheet) => exportCsv(sheet),
+      getOriginalBlob,
+      downloadOriginal,
+      downloadEncrypted,
+    });
+  }, [
+    activeSheet,
+    cancel,
+    controller,
+    downloadEncrypted,
+    downloadOriginal,
+    exportCsv,
+    getOriginalBlob,
+    metadata,
+    openSource,
+    reload,
+    unlock,
+  ]);
+
+  useEffect(() => {
+    controller?.publish({
+      status,
+      metadata,
+      progress,
+      error: engineError,
+      activeSheet,
+      selectedCell: selected,
+      zoom,
+      document,
+    });
+  }, [activeSheet, controller, document, engineError, metadata, progress, selected, status, zoom]);
 
   const handleCanvasError = useCallback(
     (error: Error) => {
       setTransientError(error.message);
-      onError?.(error);
+      onError?.(error as GridlineError);
     },
     [onError],
   );
 
-  const error = transientError ?? engineError;
+  const error = transientError ?? engineError?.message;
 
   return (
     <section
       className={["gridline", className].filter(Boolean).join(" ")}
+      data-status={status}
       onDragEnter={(event) => {
         event.preventDefault();
         setDragging(true);
@@ -151,7 +320,7 @@ export function GridlineViewer({
       onDrop={handleDrop}
     >
       <input
-        accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        accept=".xlsx,.xlsm,.gridline,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="gridline__file-input"
         onChange={(event) => {
           const file = event.target.files?.[0];
@@ -162,11 +331,15 @@ export function GridlineViewer({
         type="file"
       />
       <TopBar
+        canDownload={Boolean(document)}
+        encrypted={document?.encrypted ?? false}
+        onDownloadEncrypted={() => setEncryptionDialogOpen(true)}
+        onDownloadOriginal={downloadOriginal}
         onExport={() => void handleExport()}
         onOpen={() => fileInputRef.current?.click()}
         onToggleRail={() => setRailOpen((open) => !open)}
         railOpen={railOpen}
-        title={metadata?.title ?? "FY26 Operating Plan.xlsx"}
+        title={metadata?.title ?? document?.name ?? "Workbook viewer"}
       />
       <Toolbar onZoom={setZoom} zoom={zoom} />
       <FormulaBar onSelect={setSelected} selected={selected} cell={selectedCell} />
@@ -205,21 +378,50 @@ export function GridlineViewer({
         </>
       ) : (
         <div className="gridline__boot" role="status">
-          <span /> Starting local workbook engine…
+          {status === "idle" ? (
+            <button onClick={() => fileInputRef.current?.click()} type="button">
+              Open a workbook
+            </button>
+          ) : (
+            <><span /> {progressLabel(progress)}</>
+          )}
         </div>
       )}
 
       {status === "loading" ? (
-        <div className="gridline__loading-line" aria-label="Loading workbook" />
+        <div
+          className="gridline__loading-line"
+          aria-label={progressLabel(progress)}
+          style={{ "--gridline-progress": `${progress?.percent ?? 36}%` } as CSSProperties}
+        />
       ) : null}
       {dragging ? (
         <div className="gridline__drop-zone">
           <FolderDropMark />
           <strong>Drop workbook to open</strong>
-          <span>.xlsx and .xlsm · processed locally</span>
+          <span>.xlsx, .xlsm, and encrypted Gridline files · processed locally</span>
         </div>
       ) : null}
-      {error ? (
+      {status === "locked" && engineError ? (
+        <PasswordDialog
+          error={engineError.message}
+          filename={document?.name}
+          onCancel={cancel}
+          onSubmit={(password) => unlock(password)}
+        />
+      ) : null}
+      {encryptionDialogOpen ? (
+        <PasswordDialog
+          confirm
+          filename={document?.name}
+          onCancel={() => setEncryptionDialogOpen(false)}
+          onSubmit={async (password) => {
+            await downloadEncrypted(password);
+            setEncryptionDialogOpen(false);
+          }}
+        />
+      ) : null}
+      {error && status !== "locked" ? (
         <div className="gridline__error" role="alert">
           <span>{error}</span>
           <button onClick={() => setTransientError(null)} type="button">
@@ -229,6 +431,105 @@ export function GridlineViewer({
       ) : null}
     </section>
   );
+}
+
+function PasswordDialog({
+  filename,
+  error,
+  confirm = false,
+  onSubmit,
+  onCancel,
+}: {
+  filename?: string;
+  error?: string;
+  confirm?: boolean;
+  onSubmit: (password: string) => Promise<unknown>;
+  onCancel: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!password || (confirm && password !== confirmation)) {
+      setFormError(confirm ? "Passwords must match" : "Enter the workbook password");
+      return;
+    }
+    setBusy(true);
+    setFormError(null);
+    try {
+      await onSubmit(password);
+    } catch (cause) {
+      setFormError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="gridline__dialog-backdrop" role="presentation">
+      <form aria-modal="true" className="gridline__dialog" onSubmit={submit} role="dialog">
+        <div className="gridline__dialog-lock" aria-hidden="true">⌁</div>
+        <h2>{confirm ? "Encrypt workbook download" : "Protected workbook"}</h2>
+        <p>
+          {confirm
+            ? `Create an AES-256 encrypted copy of ${filename ?? "this workbook"}.`
+            : `${filename ?? "This workbook"} requires a password. Decryption stays in your browser.`}
+        </p>
+        <label>
+          Password
+          <input
+            autoFocus
+            autoComplete={confirm ? "new-password" : "current-password"}
+            onChange={(event) => setPassword(event.target.value)}
+            type="password"
+            value={password}
+          />
+        </label>
+        {confirm ? (
+          <label>
+            Confirm password
+            <input
+              autoComplete="new-password"
+              onChange={(event) => setConfirmation(event.target.value)}
+              type="password"
+              value={confirmation}
+            />
+          </label>
+        ) : null}
+        {formError ?? error ? <div className="gridline__dialog-error">{formError ?? error}</div> : null}
+        <div className="gridline__dialog-actions">
+          <button disabled={busy} onClick={onCancel} type="button">Cancel</button>
+          <button className="gridline__dialog-primary" disabled={busy} type="submit">
+            {busy ? "Working…" : confirm ? "Encrypt & download" : "Unlock"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function progressLabel(progress: GridlineLoadProgress | null) {
+  if (!progress) return "Starting local workbook engine…";
+  const labels = {
+    resolving: "Resolving workbook source…",
+    fetching: "Downloading workbook…",
+    decrypting: "Decrypting workbook locally…",
+    parsing: "Parsing workbook in WebAssembly…",
+    ready: "Workbook ready",
+  };
+  return progress.percent === undefined
+    ? labels[progress.phase]
+    : `${labels[progress.phase]} ${Math.round(progress.percent)}%`;
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 function FolderDropMark() {

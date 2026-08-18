@@ -23,17 +23,40 @@ import {
 export function TopBar({
   title,
   railOpen,
+  canDownload,
+  encrypted,
   onToggleRail,
   onOpen,
   onExport,
+  onDownloadOriginal,
+  onDownloadEncrypted,
 }: {
   title: string;
   railOpen: boolean;
+  canDownload: boolean;
+  encrypted: boolean;
   onToggleRail: () => void;
   onOpen: () => void;
   onExport: () => void;
+  onDownloadOriginal: () => void;
+  onDownloadEncrypted: () => void;
 }) {
-  const [aboutOpen, setAboutOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const close = (event: PointerEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && event.key !== "Escape") return;
+      if (event instanceof PointerEvent && menuRef.current?.contains(event.target as Node)) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", close);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", close);
+    };
+  }, [menuOpen]);
   return (
     <header className="gridline__topbar">
       <button
@@ -62,19 +85,52 @@ export function TopBar({
           <ExportIcon />
           <span>Export CSV</span>
         </button>
-        <div className="gridline__about-wrap">
+        <div className="gridline__about-wrap" ref={menuRef}>
           <button
-            aria-expanded={aboutOpen}
-            aria-label="About Gridline"
+            aria-expanded={menuOpen}
+            aria-haspopup="menu"
+            aria-label="Workbook menu"
             className="gridline__icon-button"
-            onClick={() => setAboutOpen((open) => !open)}
+            onClick={() => setMenuOpen((open) => !open)}
             type="button"
           >
             <MoreIcon />
           </button>
-          {aboutOpen ? (
-            <div className="gridline__about-popover" role="status">
-              Files are parsed locally in a Web Worker. Workbook data never leaves your browser.
+          {menuOpen ? (
+            <div className="gridline__workbook-menu" role="menu">
+              <button
+                disabled={!canDownload}
+                onClick={() => {
+                  onDownloadOriginal();
+                  setMenuOpen(false);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <ExportIcon />
+                <span>
+                  <strong>{encrypted ? "Download encrypted source" : "Download original"}</strong>
+                  <small>Exact bytes received by Gridline</small>
+                </span>
+              </button>
+              <button
+                disabled={!canDownload}
+                onClick={() => {
+                  onDownloadEncrypted();
+                  setMenuOpen(false);
+                }}
+                role="menuitem"
+                type="button"
+              >
+                <FolderIcon />
+                <span>
+                  <strong>Create encrypted copy</strong>
+                  <small>AES-256, password protected</small>
+                </span>
+              </button>
+              <div className="gridline__menu-note">
+                Parsed locally in a Web Worker. Workbook data never leaves your browser.
+              </div>
             </div>
           ) : null}
         </div>
