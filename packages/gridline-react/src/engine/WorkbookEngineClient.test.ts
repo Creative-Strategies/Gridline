@@ -49,9 +49,16 @@ describe("WorkbookEngineClient", () => {
     const worker = new FakeWorker();
     const client = new WorkbookEngineClient(worker);
     const pending = client.exportCsv(99);
-    worker.respond({ id: 1, ok: false, error: "sheet index 99 is out of range" });
+    worker.respond({
+      id: 1,
+      ok: false,
+      error: {
+        code: "SHEET_OUT_OF_RANGE",
+        message: "sheet index 99 is out of range",
+        recoverable: false,
+      },
+    });
     await expect(pending).rejects.toThrow("sheet index 99 is out of range");
     client.dispose();
   });
 });
-

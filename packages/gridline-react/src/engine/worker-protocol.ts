@@ -5,10 +5,11 @@ import type {
   SearchMatch,
   WorkbookMetadata,
 } from "./types";
+import type { EngineErrorPayload } from "./errors";
 
 export type EngineRequest =
   | { id: number; type: "demo" }
-  | { id: number; type: "open"; bytes: ArrayBuffer }
+  | { id: number; type: "open"; bytes: ArrayBuffer; password?: string }
   | { id: number; type: "viewport"; viewport: PixelViewport }
   | { id: number; type: "cell"; sheet: number; address: string }
   | { id: number; type: "search"; sheet: number; query: string; limit: number }
@@ -31,4 +32,4 @@ export type EnginePayload =
 
 export type EngineResponse =
   | { id: number; ok: true; payload: EnginePayload }
-  | { id: number; ok: false; error: string };
+  | { id: number; ok: false; error: EngineErrorPayload };

@@ -10,6 +10,7 @@ import type {
   EngineRequestInput,
   EngineResponse,
 } from "./worker-protocol";
+import { GridlineError } from "./errors";
 
 type PendingRequest = {
   resolve: (payload: unknown) => void;
@@ -42,8 +43,8 @@ export class WorkbookEngineClient {
     return this.request<WorkbookMetadata>({ type: "demo" });
   }
 
-  open(bytes: ArrayBuffer) {
-    return this.request<WorkbookMetadata>({ type: "open", bytes }, [bytes]);
+  open(bytes: ArrayBuffer, password?: string) {
+    return this.request<WorkbookMetadata>({ type: "open", bytes, password }, [bytes]);
   }
 
   viewport(viewport: PixelViewport) {
@@ -101,7 +102,11 @@ export class WorkbookEngineClient {
     if (response.ok) {
       pending.resolve(response.payload);
     } else {
-      pending.reject(new Error(response.error));
+      pending.reject(
+        new GridlineError(response.error.code, response.error.message, {
+          recoverable: response.error.recoverable,
+        }),
+      );
     }
   };
 

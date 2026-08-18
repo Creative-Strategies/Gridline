@@ -6,6 +6,7 @@ import type {
   EngineRequest,
   EngineResponse,
 } from "./worker-protocol";
+import { toEngineErrorPayload } from "./errors";
 
 let handle: WorkbookHandle | undefined;
 let initialization: Promise<unknown> | undefined;
@@ -39,7 +40,9 @@ self.addEventListener("message", async (event: MessageEvent<EngineRequest>) => {
         break;
       }
       case "open": {
-        replaceHandle(new WorkbookHandle(new Uint8Array(request.bytes)));
+        replaceHandle(
+          WorkbookHandle.open(new Uint8Array(request.bytes), request.password),
+        );
         payload = requireHandle().metadata();
         break;
       }
@@ -83,7 +86,7 @@ self.addEventListener("message", async (event: MessageEvent<EngineRequest>) => {
     self.postMessage({
       id: request.id,
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: toEngineErrorPayload(error),
     } satisfies EngineResponse);
   }
 });
