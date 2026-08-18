@@ -11,7 +11,7 @@ import {
 } from "react";
 import { encryptGridlineDocument } from "../engine/crypto";
 import type { GridlineController } from "../engine/GridlineController";
-import type { GridlineError } from "../engine/errors";
+import { normalizeGridlineError, type GridlineError } from "../engine/errors";
 import type {
   GridlineLoadProgress,
   GridlineSource,
@@ -101,7 +101,9 @@ export function GridlineViewer({
     viewport,
     cell,
     exportCsv,
+    clearError,
     getOriginalBlob,
+    getWorkbookBlob,
   } = useWorkbookEngine({
     autoLoadDemo,
     maxSourceBytes,
@@ -111,6 +113,10 @@ export function GridlineViewer({
   });
 
   useEffect(() => {
+    if (window.matchMedia("(max-width: 900px)").matches) setRailOpen(false);
+  }, []);
+
+  useEffect(() => {
     if (!metadata || status === "booting" || activeSheet >= metadata.sheets.length) return;
     let current = true;
     cell(activeSheet, cellAddress(selected))
@@ -118,10 +124,10 @@ export function GridlineViewer({
         if (current) setSelectedCell(snapshot);
       })
       .catch((cause) => {
-        const error = cause instanceof Error ? cause : new Error(String(cause));
+        const error = normalizeGridlineError(cause);
         if (current) {
           setTransientError(error.message);
-          onError?.(error as GridlineError);
+          onError?.(error);
         }
       });
     return () => {
@@ -191,9 +197,16 @@ export function GridlineViewer({
     void passwordProvider({
       error: engineError,
       document: document ? { name: document.name, encrypted: document.encrypted } : null,
-    }).then((password) => {
-      if (active && password) void unlock(password).catch(() => undefined);
-    });
+    })
+      .then((password) => {
+        if (active && password) void unlock(password).catch(() => undefined);
+      })
+      .catch((cause) => {
+        if (!active) return;
+        const error = normalizeGridlineError(cause);
+        setTransientError(error.message);
+        onError?.(error);
+      });
     return () => {
       active = false;
     };
@@ -220,9 +233,9 @@ export function GridlineViewer({
         );
         return csv;
       } catch (cause) {
-        const error = cause instanceof Error ? cause : new Error(String(cause));
+        const error = normalizeGridlineError(cause);
         setTransientError(error.message);
-        onError?.(error as GridlineError);
+        onError?.(error);
         throw error;
       }
     },
@@ -237,7 +250,7 @@ export function GridlineViewer({
 
   const downloadEncrypted = useCallback(
     async (password: string) => {
-      const blob = getOriginalBlob();
+      const blob = getWorkbookBlob();
       if (!blob || !document) {
         throw new Error("Open a workbook before creating an encrypted download");
       }
@@ -248,7 +261,7 @@ export function GridlineViewer({
       downloadBlob(encrypted.blob, encrypted.filename);
       return encrypted;
     },
-    [document, getOriginalBlob],
+    [document, getWorkbookBlob],
   );
 
   useEffect(() => {
@@ -297,8 +310,9 @@ export function GridlineViewer({
 
   const handleCanvasError = useCallback(
     (error: Error) => {
-      setTransientError(error.message);
-      onError?.(error as GridlineError);
+      const normalized = normalizeGridlineError(error);
+      setTransientError(normalized.message);
+      onError?.(normalized);
     },
     [onError],
   );
@@ -424,7 +438,13 @@ export function GridlineViewer({
       {error && status !== "locked" ? (
         <div className="gridline__error" role="alert">
           <span>{error}</span>
-          <button onClick={() => setTransientError(null)} type="button">
+          <button
+            onClick={() => {
+              setTransientError(null);
+              clearError();
+            }}
+            type="button"
+          >
             Dismiss
           </button>
         </div>

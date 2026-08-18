@@ -110,7 +110,9 @@ export class GridlineController {
   subscribe(listener: GridlineControllerListener) {
     this.listeners.add(listener);
     listener(this.state);
-    return () => this.listeners.delete(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   /** @internal Used by the React host to connect the imperative platform API. */

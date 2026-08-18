@@ -155,8 +155,14 @@ async function loadResolvedSource(
       decryptedName = decrypted.filename ?? name.replace(/\.gridline$/i, "");
       decryptedMime = decrypted.mimeType ?? mimeType;
     } else if (encryption.type === "aes-gcm") {
+      if (!globalThis.crypto?.subtle) {
+        throw new GridlineError(
+          "UNSUPPORTED_ENCRYPTION",
+          "Web Crypto is unavailable; use HTTPS or a secure browser context",
+        );
+      }
       try {
-        workbookBytes = await crypto.subtle.decrypt(
+        workbookBytes = await globalThis.crypto.subtle.decrypt(
           {
             name: "AES-GCM",
             iv: encryption.iv,
@@ -198,6 +204,13 @@ async function readData(
   },
 ) {
   if (data instanceof Response) {
+    if (!data.ok) {
+      throw new GridlineError(
+        "FETCH_FAILED",
+        `Cloud workbook request failed (${data.status} ${data.statusText})`,
+        { recoverable: true },
+      );
+    }
     const declared = Number(data.headers.get("content-length"));
     if (Number.isFinite(declared) && declared > 0) enforceLimit(declared, maxBytes);
     if (!data.body) return checkedBuffer(await data.arrayBuffer(), maxBytes);
@@ -255,7 +268,15 @@ function enforceLimit(size: number, maxBytes: number) {
 
 async function importAesKey(key: CryptoKey | BufferSource) {
   if (typeof CryptoKey !== "undefined" && key instanceof CryptoKey) return key;
-  return crypto.subtle.importKey("raw", key as BufferSource, "AES-GCM", false, ["decrypt"]);
+  if (!globalThis.crypto?.subtle) {
+    throw new GridlineError(
+      "UNSUPPORTED_ENCRYPTION",
+      "Web Crypto is unavailable; use HTTPS or a secure browser context",
+    );
+  }
+  return globalThis.crypto.subtle.importKey("raw", key as BufferSource, "AES-GCM", false, [
+    "decrypt",
+  ]);
 }
 
 function copyBufferSource(source: BufferSource) {

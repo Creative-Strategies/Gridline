@@ -31,8 +31,8 @@ export async function encryptGridlineDocument(
   requirePassword(password);
   const subtle = requireSubtleCrypto();
   const plaintext = await toArrayBuffer(input);
-  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
-  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const salt = globalThis.crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const iv = globalThis.crypto.getRandomValues(new Uint8Array(IV_BYTES));
   const name = new TextEncoder().encode(metadata.filename ?? "workbook.xlsx");
   const mime = new TextEncoder().encode(
     metadata.mimeType ??

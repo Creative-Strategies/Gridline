@@ -71,6 +71,18 @@ describe("loadWorkbookSource", () => {
     ).rejects.toMatchObject({ code: "RESOURCE_LIMIT" });
   });
 
+  it("rejects unsuccessful responses returned by a custom resolver", async () => {
+    await expect(
+      loadWorkbookSource(
+        {
+          type: "resolver",
+          resolve: async () => new Response("not found", { status: 404, statusText: "Not Found" }),
+        },
+        { signal: new AbortController().signal },
+      ),
+    ).rejects.toMatchObject({ code: "FETCH_FAILED", recoverable: true });
+  });
+
   it("honors cancellation before invoking a cloud resolver", async () => {
     const abort = new AbortController();
     abort.abort();

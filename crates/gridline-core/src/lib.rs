@@ -15,6 +15,7 @@ use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
 const OLE_COMPOUND_MAGIC: [u8; 8] = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+const MAX_ENCRYPTED_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -136,8 +137,14 @@ impl WorkbookHandle {
 }
 
 fn open_handle(bytes: &[u8], password: Option<&str>) -> Result<WorkbookHandle> {
+    let encrypted = is_office_encrypted(bytes);
+    if encrypted && bytes.len() > MAX_ENCRYPTED_BYTES {
+        return Err(GridlineError::ResourceLimit(format!(
+            "encrypted archive exceeds {MAX_ENCRYPTED_BYTES} bytes"
+        )));
+    }
     let decrypted;
-    let workbook_bytes = if is_office_encrypted(bytes) {
+    let workbook_bytes = if encrypted {
         let password = password.ok_or(GridlineError::PasswordRequired)?;
         decrypted = office_crypto::decrypt_from_bytes(bytes.to_vec(), password)
             .map_err(map_decryption_error)?;
@@ -146,10 +153,15 @@ fn open_handle(bytes: &[u8], password: Option<&str>) -> Result<WorkbookHandle> {
         bytes
     };
 
-    ooxml::parse_workbook(workbook_bytes).map(|mut workbook| {
-        formula::evaluate_missing_formulas_in_workbook(&mut workbook);
-        WorkbookHandle { workbook }
-    })
+    match ooxml::parse_workbook(workbook_bytes) {
+        Ok(mut workbook) => {
+            formula::evaluate_missing_formulas_in_workbook(&mut workbook);
+            Ok(WorkbookHandle { workbook })
+        }
+        Err(GridlineError::ResourceLimit(reason)) => Err(GridlineError::ResourceLimit(reason)),
+        Err(_) if encrypted => Err(GridlineError::DecryptionFailed),
+        Err(error) => Err(error),
+    }
 }
 
 fn is_office_encrypted(bytes: &[u8]) -> bool {
@@ -195,5 +207,21 @@ mod tests {
             .err()
             .expect("encrypted input should require a password");
         assert_eq!(error.code(), "PASSWORD_REQUIRED");
+    }
+
+    #[test]
+    #[ignore = "requires GRIDLINE_ENCRYPTED_FIXTURE and GRIDLINE_FIXTURE_PASSWORD"]
+    fn opens_external_password_protected_workbook() {
+        let path = std::env::var("GRIDLINE_ENCRYPTED_FIXTURE")
+            .expect("set GRIDLINE_ENCRYPTED_FIXTURE to an encrypted OOXML document");
+        let password = std::env::var("GRIDLINE_FIXTURE_PASSWORD")
+            .expect("set GRIDLINE_FIXTURE_PASSWORD to its password");
+        let bytes = std::fs::read(path).expect("encrypted fixture should be readable");
+        let handle = open_handle(&bytes, Some(&password)).expect("password should decrypt fixture");
+        assert!(!handle.workbook.sheets.is_empty());
+        let error = open_handle(&bytes, Some("definitely-wrong"))
+            .err()
+            .expect("wrong password should fail");
+        assert_eq!(error.code(), "DECRYPTION_FAILED");
     }
 }
