@@ -2,6 +2,12 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum GridlineError {
+    #[error("this workbook is password protected")]
+    PasswordRequired,
+    #[error("the workbook could not be decrypted; check the password and file integrity")]
+    DecryptionFailed,
+    #[error("unsupported Office encryption: {0}")]
+    UnsupportedEncryption(String),
     #[error("invalid XLSX archive: {0}")]
     Archive(String),
     #[error("invalid OOXML document: {0}")]
@@ -16,6 +22,23 @@ pub enum GridlineError {
     ResourceLimit(String),
     #[error("serialization failed: {0}")]
     Serialization(String),
+}
+
+impl GridlineError {
+    pub fn code(&self) -> &'static str {
+        match self {
+            Self::PasswordRequired => "PASSWORD_REQUIRED",
+            Self::DecryptionFailed => "DECRYPTION_FAILED",
+            Self::UnsupportedEncryption(_) => "UNSUPPORTED_ENCRYPTION",
+            Self::Archive(_) => "INVALID_ARCHIVE",
+            Self::Xml(_) => "INVALID_OOXML",
+            Self::MissingPart(_) => "MISSING_PART",
+            Self::SheetOutOfRange(_) => "SHEET_OUT_OF_RANGE",
+            Self::InvalidAddress(_) => "INVALID_ADDRESS",
+            Self::ResourceLimit(_) => "RESOURCE_LIMIT",
+            Self::Serialization(_) => "SERIALIZATION_FAILED",
+        }
+    }
 }
 
 impl From<zip::result::ZipError> for GridlineError {
