@@ -1,7 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { access } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const workspace = new URL("../", import.meta.url);
+const npmCache = join(tmpdir(), "gridline-npm-pack-cache");
 
 run("pnpm", ["build:packages"]);
 
@@ -43,7 +46,15 @@ function run(command, args) {
 function packFiles(packageDirectory) {
   const result = spawnSync(
     "npm",
-    ["pack", "--dry-run", "--json", "--ignore-scripts", packageDirectory],
+    [
+      "pack",
+      "--cache",
+      npmCache,
+      "--dry-run",
+      "--json",
+      "--ignore-scripts",
+      packageDirectory,
+    ],
     { cwd: workspace, encoding: "utf8" },
   );
   if (result.error) throw result.error;
