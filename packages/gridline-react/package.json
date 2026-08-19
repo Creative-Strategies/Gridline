@@ -51,7 +51,7 @@
     "typecheck": "pnpm --dir ../.. build:wasm && tsc --noEmit"
   },
   "dependencies": {
-    "gridline-wasm": "workspace:^"
+    "gridline-wasm": "^0.1.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.0.0",
