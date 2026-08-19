@@ -1,0 +1,44 @@
+name: Publish npm packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: npm-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install release toolchain
+        run: |
+          npm install --global npm@11.17.0
+          cargo install wasm-pack --version 0.15.0 --locked
+      - run: pnpm install --frozen-lockfile
+      - run: node scripts/verify-release.mjs
+      - run: pnpm test
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm pack:check
+      - name: Publish WebAssembly engine
+        run: node scripts/publish-if-needed.mjs ./packages/gridline-wasm
+      - name: Publish React viewer
+        run: node scripts/publish-if-needed.mjs ./packages/gridline-react

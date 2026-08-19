@@ -19,8 +19,8 @@ The engine is “from scratch” at the spreadsheet layer: Gridline owns the wor
 
 ## Package boundaries
 
-- `gridline-core` has no React or Next.js dependency and can be tested natively.
-- `@gridline/react` owns source resolution, encryption envelopes, candidate-worker lifecycle, platform control, scrolling, selection, file input, and canvas painting.
+- `gridline-wasm` publishes the generated bindings for the Rust `gridline-core` crate and has no React or Next.js dependency.
+- `gridline-viewer` owns source resolution, encryption envelopes, candidate-worker lifecycle, platform control, scrolling, selection, file input, canvas painting, and the Next.js configuration helper.
 - `@gridline/demo` proves App Router integration without server-side WASM execution.
 
 ## Supported OOXML surface
@@ -37,4 +37,4 @@ Deliberately deferred: editing and save-back, macros, external links, structured
 
 ## Security and resource limits
 
-Parsing and Office decryption stay in a worker. The source layer caps remote data before and during streaming; the core separately rejects oversized archives, excessive expanded XML, too many sheets/cells, invalid relationship targets, and malformed coordinates. Formulas are interpreted as data by a small evaluator; they are never executed as JavaScript. Passwords are passed only to the active decrypt operation and are not published in controller state.
+Parsing and Office decryption stay in a worker. The source layer caps remote data before and during streaming; the core separately rejects oversized archives, excessive expanded XML, late/oversized cell structures, long cell text, invalid relationship targets, and malformed coordinates. Formula tokens, arguments, recursion, referenced values, and workbook-wide work are bounded; formulas are interpreted as data and never executed as JavaScript. CSV exports neutralize formula-like strings and cap both area and bytes. Passwords are passed only to the active decrypt operation and are not published in controller state.

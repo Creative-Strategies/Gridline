@@ -9,7 +9,7 @@ Use a signed object URL, an authenticated request, or a resolver backed by your 
 ```tsx
 "use client";
 
-import { GridlineViewer, type GridlineSource } from "@gridline/react";
+import { GridlineViewer, type GridlineSource } from "gridline-viewer";
 
 const source: GridlineSource = {
   type: "url",
@@ -36,7 +36,7 @@ const source: GridlineSource = {
 };
 ```
 
-Remote hosts must allow the embedding origin through CORS. Prefer short-lived, read-only signed URLs. Do not expose long-lived cloud credentials or service tokens to the browser.
+Remote hosts must allow the embedding origin through CORS. Prefer short-lived, read-only signed URLs. Do not expose long-lived cloud credentials or service tokens to the browser. If an end user can influence the URL, enforce an origin allowlist before attaching `Authorization`, cookies, or other privileged request options; redirects should remain within the same policy.
 
 ## Platform controller
 
@@ -77,6 +77,6 @@ Gridline supports three browser-side paths:
 
 ## Limits and lifecycle
 
-The default compressed source limit is 64 MB and is enforced against `Content-Length` before download and again while streaming. The Rust engine separately limits expanded archive data, individual parts, sheets, cells, chart points, and viewport size. Override the source cap with `maxSourceBytes`, but keep the WASM limits in mind.
+The default compressed source limit is 64 MB and is enforced against `Content-Length` before download and again while streaming. The Rust engine separately limits expanded archive data, individual parts, shared/cell text, sheets, cells, formula work/depth, CSV area/output, chart points, and viewport size. Override the source cap with `maxSourceBytes`, but keep the WASM limits in mind.
 
 Progress moves through `resolving`, `fetching`, `decrypting`, `parsing`, and `ready`. `cancel()` aborts resolvers/fetches and terminates an in-flight candidate parser. Unmounting the viewer aborts current work and disposes both workers.

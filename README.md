@@ -4,10 +4,30 @@ Gridline is a from-scratch, local-first Excel workbook viewer for Next.js. A Rus
 
 No workbook data leaves the browser, and no third-party spreadsheet engine is embedded. The workbook bytes are transferred to a Web Worker, parsed by Rust compiled to WebAssembly, and painted through a virtualized canvas.
 
+## Install
+
+```bash
+npm install gridline-viewer
+```
+
+Configure Next.js once with the package helper:
+
+```ts
+// next.config.ts
+import type { NextConfig } from "next";
+import { withGridline } from "gridline-viewer/next";
+
+const nextConfig: NextConfig = { reactStrictMode: true };
+export default withGridline(nextConfig);
+```
+
+Gridline currently uses Next.js Webpack for worker/WASM asset emission, so run
+`next dev --webpack` and `next build --webpack`.
+
 ## Workspace
 
 - `crates/gridline-core` — Rust workbook model, XLSX parser, formatter, formula primitives, and WASM viewport API.
-- `packages/gridline-react` — embeddable React viewer, worker bridge, and canvas renderer.
+- `packages/gridline-react` — published as `gridline-viewer`; embeddable React viewer, worker bridge, and canvas renderer.
 - `packages/gridline-wasm` — generated `wasm-pack` output (not committed).
 - `apps/demo` — Next.js reference integration.
 
@@ -36,7 +56,7 @@ Render the viewer from a client component:
 ```tsx
 "use client";
 
-import { GridlineViewer } from "@gridline/react";
+import { GridlineViewer } from "gridline-viewer";
 
 export function WorkbookView({ file }: { file?: File }) {
   return (
@@ -65,7 +85,7 @@ Cloud-hosted and platform-encrypted workbooks can be supplied directly:
 />
 ```
 
-The reference app uses webpack because the generated module ships a `.wasm` asset. Its [`next.config.ts`](apps/demo/next.config.ts) enables `asyncWebAssembly`, assigns a stable static asset path, and transpiles the two workspace packages. The viewer must be imported by a client component; the worker keeps workbook parsing out of the server-rendering path and off the main browser thread.
+The reference app uses the `withGridline` helper because the generated module ships a `.wasm` asset. The helper enables `asyncWebAssembly`, assigns a stable static asset path, and composes any existing Webpack callback. The viewer must be imported by a client component; the worker keeps workbook parsing out of the server-rendering path and off the main browser thread.
 
 The component is read-only and intentionally opinionated. It includes local and cloud loading, Office and platform-encrypted documents, exact-source and encrypted downloads, cancellation/progress, sheet navigation, selection, formula inspection, zoom, sparse scrolling, hidden dimensions, sheet-controlled gridline visibility, pinned frozen panes, and CSV export. `GridlineController`, `GridlineViewerProps`, `WorkbookEngineClient`, and `useWorkbookEngine` are exported for typed integrations that need platform control or custom chrome. See [`docs/platform-integration.md`](docs/platform-integration.md) and the `/platform` reference route.
 
@@ -75,9 +95,12 @@ The component is read-only and intentionally opinionated. It includes local and 
 pnpm test
 pnpm typecheck
 pnpm build
+pnpm pack:check
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for the engine contract and current OOXML support.
+Maintainers should also read [`docs/releasing.md`](docs/releasing.md) before
+publishing a new npm version.
 
 ## Atlas reference workbook
 
