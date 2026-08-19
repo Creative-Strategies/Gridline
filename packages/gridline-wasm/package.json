@@ -1,18 +1,48 @@
 {
-  "name": "gridline-core",
+  "name": "gridline-wasm",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "description": "Generated WebAssembly bindings for Gridline's Rust workbook engine",
+  "description": "Rust/WebAssembly OOXML workbook engine used by the Gridline Excel viewer",
+  "license": "MIT",
+  "author": "Creative Strategies",
+  "keywords": [
+    "excel",
+    "xlsx",
+    "wasm",
+    "webassembly",
+    "spreadsheet",
+    "ooxml"
+  ],
+  "homepage": "https://github.com/Creative-Strategies/Gridline#readme",
+  "bugs": "https://github.com/Creative-Strategies/Gridline/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Creative-Strategies/Gridline.git",
+    "directory": "packages/gridline-wasm"
+  },
   "main": "./pkg/gridline_core.js",
   "types": "./pkg/gridline_core.d.ts",
   "exports": {
     ".": {
       "types": "./pkg/gridline_core.d.ts",
-      "import": "./pkg/gridline_core.js"
+      "import": "./pkg/gridline_core.js",
+      "default": "./pkg/gridline_core.js"
     }
   },
   "files": [
-    "pkg"
-  ]
+    "pkg",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm --dir ../.. build:wasm",
+    "prepack": "pnpm run build"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=20"
+  }
 }

@@ -1,28 +1,81 @@
 {
-  "name": "@gridline/react",
+  "name": "gridline-viewer",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
-  "exports": {
-    ".": "./src/index.ts"
+  "description": "Embeddable React and Next.js Excel viewer powered by a local Rust/WebAssembly engine",
+  "license": "MIT",
+  "author": "Creative Strategies",
+  "keywords": [
+    "excel",
+    "xlsx",
+    "react",
+    "nextjs",
+    "wasm",
+    "spreadsheet",
+    "viewer"
+  ],
+  "homepage": "https://github.com/Creative-Strategies/Gridline#readme",
+  "bugs": "https://github.com/Creative-Strategies/Gridline/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Creative-Strategies/Gridline.git",
+    "directory": "packages/gridline-react"
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "default": "./dist/next.js"
+    },
+    "./styles.css": "./dist/viewer/gridline.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
   "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
+    "prepack": "pnpm --dir ../.. build:wasm && pnpm run build",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "pnpm --dir ../.. build:wasm && tsc --noEmit"
   },
   "dependencies": {
-    "gridline-core": "workspace:*",
-    "react": "^19.2.0"
+    "gridline-wasm": "workspace:^"
   },
   "devDependencies": {
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "jsdom": "^27.0.0",
+    "next": "^16.0.0",
+    "react": "^19.2.0",
     "typescript": "^5.9.0",
     "vitest": "^4.0.0"
   },
   "peerDependencies": {
-    "react": ">=18.3.0"
+    "next": ">=15.0.0 <17",
+    "react": ">=18.3.0 <20"
+  },
+  "peerDependenciesMeta": {
+    "next": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=20"
   }
 }
-

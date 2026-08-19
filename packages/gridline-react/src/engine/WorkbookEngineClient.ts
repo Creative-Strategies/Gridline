@@ -31,7 +31,7 @@ export class WorkbookEngineClient {
   constructor(worker?: EngineWorker) {
     this.worker =
       worker ??
-      new Worker(new URL("./workbook.worker.ts", import.meta.url), {
+      new Worker(new URL("./workbook.worker.js", import.meta.url), {
         type: "module",
         name: "gridline-engine",
       });

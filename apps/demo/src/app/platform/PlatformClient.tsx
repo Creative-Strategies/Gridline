@@ -4,7 +4,7 @@ import {
   GridlineController,
   GridlineViewer,
   type GridlineControllerState,
-} from "@gridline/react";
+} from "gridline-viewer";
 import { useCallback, useState, useSyncExternalStore, type FormEvent } from "react";
 
 export function PlatformClient() {

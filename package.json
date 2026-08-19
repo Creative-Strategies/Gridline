@@ -2,15 +2,23 @@
   "name": "gridline-workspace",
   "version": "0.1.0",
   "private": true,
+  "description": "Gridline from-scratch Rust/WASM Excel viewer workspace",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Creative-Strategies/Gridline.git"
+  },
   "packageManager": "pnpm@10.24.0",
   "scripts": {
-    "build": "pnpm build:wasm && pnpm --filter @gridline/demo build",
-    "build:wasm": "wasm-pack build crates/gridline-core --target web --out-dir ../../packages/gridline-wasm/pkg --out-name gridline_core",
-    "dev": "pnpm build:wasm && pnpm --filter @gridline/demo dev",
+    "build": "pnpm build:packages && pnpm --filter @gridline/demo build",
+    "build:packages": "pnpm build:wasm && pnpm --filter gridline-viewer build",
+    "build:wasm": "node scripts/build-wasm.mjs",
+    "dev": "pnpm build:packages && pnpm --filter @gridline/demo dev",
     "inspect:xlsx": "node scripts/inspect-xlsx.mjs",
-    "lint": "pnpm --filter @gridline/demo lint && pnpm --filter @gridline/react typecheck",
-    "test": "cargo test --workspace && pnpm --filter @gridline/react test && pnpm --filter @gridline/demo test",
+    "lint": "pnpm --filter @gridline/demo lint && pnpm --filter gridline-viewer typecheck",
+    "pack:check": "node scripts/check-packages.mjs",
+    "test": "cargo test --workspace && pnpm --filter gridline-viewer test && pnpm --filter @gridline/demo test",
     "test:rust": "cargo test --workspace",
-    "typecheck": "pnpm --filter @gridline/react typecheck && pnpm --filter @gridline/demo typecheck"
+    "typecheck": "pnpm --filter gridline-viewer typecheck && pnpm --filter @gridline/demo typecheck"
   }
 }

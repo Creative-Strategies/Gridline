@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import initWasm, { WorkbookHandle } from "gridline-core";
+import initWasm, { WorkbookHandle } from "gridline-wasm";
 import type {
   EnginePayload,
   EngineRequest,
