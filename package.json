@@ -15,10 +15,10 @@
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "pnpm build:packages && pnpm --filter @gridline/demo dev",
     "inspect:xlsx": "node scripts/inspect-xlsx.mjs",
-    "lint": "pnpm --filter @gridline/demo lint && pnpm --filter gridline-viewer typecheck",
+    "lint": "pnpm build:packages && pnpm --filter @gridline/demo lint && pnpm --filter gridline-viewer exec tsc --noEmit",
     "pack:check": "node scripts/check-packages.mjs",
     "test": "cargo test --workspace && pnpm --filter gridline-viewer test && pnpm --filter @gridline/demo test",
     "test:rust": "cargo test --workspace",
-    "typecheck": "pnpm --filter gridline-viewer typecheck && pnpm --filter @gridline/demo typecheck"
+    "typecheck": "pnpm build:packages && pnpm --filter gridline-viewer exec tsc --noEmit && pnpm --filter @gridline/demo typecheck"
   }
 }
