@@ -12,7 +12,7 @@ pnpm build:wasm
 pnpm dev
 ~~~
 
-The demo runs at http://127.0.0.1:3000 and uses Next.js Webpack.
+The demo runs at http://127.0.0.1:3000 and uses Next.js Turbopack by default.
 
 ## Before submitting a change
 

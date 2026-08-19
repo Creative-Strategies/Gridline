@@ -11,7 +11,8 @@ paints the visible cells.
 npm install gridline-viewer
 ~~~
 
-For Next.js, compose the supplied configuration helper and use Webpack:
+For Next.js 16, compose the supplied configuration helper. Gridline works with
+the default Turbopack development and production pipelines:
 
 ~~~ts
 // next.config.ts
@@ -25,13 +26,11 @@ const nextConfig: NextConfig = {
 export default withGridline(nextConfig);
 ~~~
 
-~~~json
-{
-  "scripts": {
-    "dev": "next dev --webpack",
-    "build": "next build --webpack"
-  }
-}
+For Next.js 15 or an application that explicitly uses Webpack, select the
+compatibility mode and run Next.js with `--webpack`:
+
+~~~ts
+export default withGridline(nextConfig, { bundler: "webpack" });
 ~~~
 
 Render the viewer from a client component:
@@ -53,4 +52,3 @@ should allowlist origins and use short-lived read-only URLs.
 
 Full integration and security documentation lives in the
 [Gridline repository](https://github.com/Creative-Strategies/Gridline).
-

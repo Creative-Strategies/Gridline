@@ -1,14 +1,26 @@
 import type { NextConfig } from "next";
 
+export interface GridlineNextOptions {
+  /**
+   * Select the Next.js bundler integration. Turbopack is the default and does
+   * not require custom configuration on Next.js 16. Use `webpack` for Next.js
+   * 15 or applications that explicitly run Next.js with `--webpack`.
+   */
+  bundler?: "turbopack" | "webpack";
+}
+
 /**
- * Adds the Webpack settings required by wasm-pack's browser target while
- * preserving an application's existing Next.js configuration.
- *
- * Gridline currently requires `next dev --webpack` / `next build --webpack`.
+ * Adds the package transpilation settings required by Gridline while
+ * preserving an application's existing Next.js configuration. Next.js 16's
+ * default Turbopack pipeline supports Gridline's Web Worker and WASM assets
+ * without additional bundler configuration.
  */
-export function withGridline(nextConfig: NextConfig = {}): NextConfig {
+export function withGridline(
+  nextConfig: NextConfig = {},
+  options: GridlineNextOptions = {},
+): NextConfig {
   const userWebpack = nextConfig.webpack;
-  return {
+  const configured: NextConfig = {
     ...nextConfig,
     transpilePackages: [
       ...new Set([
@@ -17,6 +29,14 @@ export function withGridline(nextConfig: NextConfig = {}): NextConfig {
         "gridline-wasm",
       ]),
     ],
+  };
+
+  if ((options.bundler ?? "turbopack") !== "webpack") {
+    return configured;
+  }
+
+  return {
+    ...configured,
     webpack(config, context) {
       const configured = userWebpack?.(config, context) ?? config;
       configured.experiments = {
