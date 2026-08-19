@@ -38,6 +38,48 @@ const source: GridlineSource = {
 
 Remote hosts must allow the embedding origin through CORS. Prefer short-lived, read-only signed URLs. Do not expose long-lived cloud credentials or service tokens to the browser. If an end user can influence the URL, enforce an origin allowlist before attaching `Authorization`, cookies, or other privileged request options; redirects should remain within the same policy.
 
+## Content Security Policy and worker caching
+
+Gridline compiles its Rust engine's WebAssembly inside a module Web Worker.
+Under CSP, `script-src` therefore needs `'wasm-unsafe-eval'` on the page
+response **and** the worker script response. The worker has its own CSP global
+object, so a header attached only to the viewer route does not authorize WASM
+compilation in the worker. Keep the broader `'unsafe-eval'` source disabled.
+
+For the default Next.js integration, apply the policy globally or include both
+the application route and `/_gridline/worker/:path*` in the header matchers.
+The reference application uses:
+
+```ts
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+  "worker-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+].join("; ");
+
+const nextConfig: NextConfig = {
+  async headers() {
+    return [{
+      source: "/:path*",
+      headers: [{ key: "Content-Security-Policy", value: contentSecurityPolicy }],
+    }];
+  },
+};
+```
+
+Adapt the other directives to the host application. In particular, a
+nonce-based Next.js policy can remove the example's `'unsafe-inline'` values;
+the Gridline requirement is the narrowly scoped `'wasm-unsafe-eval'` value.
+
+`withGridline` also assigns a release-versioned same-origin prefix to the
+worker bootstrap and its module chunks. Next.js rewrites the versioned route to
+its normal static assets, so each Gridline release changes the worker's actual
+HTTP cache key while retaining immutable caching within a release. If a custom
+`workerAssetPrefix` is supplied, the platform or CDN must route that versioned
+prefix and return the same CSP on its worker responses.
+
 ## Platform controller
 
 `GridlineController` provides a stable integration boundary for navigation, loading, cancellation, downloads, and state observation:

@@ -11,6 +11,10 @@ export type {
 export { GridlineError } from "./engine/errors";
 export type { GridlineErrorCode } from "./engine/errors";
 export {
+  GRIDLINE_VERSION,
+  GRIDLINE_WORKER_ASSET_PREFIX,
+} from "./version";
+export {
   decryptGridlineDocument,
   encryptGridlineDocument,
   isGridlineEncryptedDocument,

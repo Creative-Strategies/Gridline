@@ -11,6 +11,7 @@ import type {
   EngineResponse,
 } from "./worker-protocol";
 import { GridlineError } from "./errors";
+import { GRIDLINE_VERSION } from "../version";
 
 type PendingRequest = {
   resolve: (payload: unknown) => void;
@@ -99,6 +100,16 @@ export class WorkbookEngineClient {
     const pending = this.pending.get(response.id);
     if (!pending) return;
     this.pending.delete(response.id);
+    if (response.workerVersion !== GRIDLINE_VERSION) {
+      pending.reject(
+        new GridlineError(
+          "WORKER_FAILED",
+          `Gridline worker version mismatch (expected ${GRIDLINE_VERSION}, received ${response.workerVersion ?? "unknown"}). Reload the application to refresh cached worker assets.`,
+          { recoverable: true },
+        ),
+      );
+      return;
+    }
     if (response.ok) {
       pending.resolve(response.payload);
     } else {
@@ -111,7 +122,13 @@ export class WorkbookEngineClient {
   };
 
   private readonly onError = (event: ErrorEvent) => {
-    this.rejectAll(new Error(event.message || "Gridline engine worker failed"));
+    const detail = event.message ? `: ${event.message}` : "";
+    this.rejectAll(
+      new GridlineError(
+        "WORKER_FAILED",
+        `Gridline engine worker failed${detail}. If Content Security Policy is enabled, add 'wasm-unsafe-eval' to script-src on both document and worker responses; do not add 'unsafe-eval'.`,
+      ),
+    );
   };
 
   private rejectAll(error: Error) {

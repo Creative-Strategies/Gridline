@@ -2,6 +2,17 @@
 
 All notable changes to Gridline are documented here.
 
+## 0.2.1
+
+- Give Turbopack and Webpack worker entrypoints a release-versioned,
+  same-origin URL so an upgrade cannot reuse an immutable worker bootstrap
+  cached with stale response headers.
+- Add a worker/runtime version handshake that rejects mixed Gridline assets
+  with an actionable reload error instead of silently running mismatched code.
+- Document and exercise the Content Security Policy required for local WASM:
+  `script-src` must include `'wasm-unsafe-eval'` on both document and worker
+  responses, while ordinary JavaScript `'unsafe-eval'` remains unnecessary.
+
 ## 0.2.0
 
 - Support Next.js 16's default Turbopack development and production pipelines,

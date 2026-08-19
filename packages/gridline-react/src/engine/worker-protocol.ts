@@ -6,6 +6,9 @@ import type {
   WorkbookMetadata,
 } from "./types";
 import type { EngineErrorPayload } from "./errors";
+import type { GRIDLINE_VERSION } from "../version";
+
+export type GridlineWorkerVersion = typeof GRIDLINE_VERSION;
 
 export type EngineRequest =
   | { id: number; type: "demo" }
@@ -31,5 +34,15 @@ export type EnginePayload =
   | null;
 
 export type EngineResponse =
-  | { id: number; ok: true; payload: EnginePayload }
-  | { id: number; ok: false; error: EngineErrorPayload };
+  | {
+      id: number;
+      ok: true;
+      payload: EnginePayload;
+      workerVersion: GridlineWorkerVersion;
+    }
+  | {
+      id: number;
+      ok: false;
+      error: EngineErrorPayload;
+      workerVersion: GridlineWorkerVersion;
+    };

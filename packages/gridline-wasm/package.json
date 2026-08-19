@@ -1,6 +1,6 @@
 {
   "name": "gridline-wasm",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "type": "module",
   "description": "Rust/WebAssembly OOXML workbook engine used by the Gridline Excel viewer",
   "license": "MIT",

@@ -26,6 +26,53 @@ production pipelines without custom loader rules. For Next.js 15 or an
 application that explicitly runs `next dev --webpack` / `next build --webpack`,
 use `withGridline(nextConfig, { bundler: "webpack" })`.
 
+### Content Security Policy
+
+Gridline compiles WebAssembly inside a module Web Worker. If the host sends a
+Content Security Policy, add `'wasm-unsafe-eval'` to `script-src` on **both the
+document and worker responses**. Keep ordinary JavaScript `'unsafe-eval'`
+disabled. A route-only header for the page is insufficient because a worker is
+its own CSP global object.
+
+For Next.js, use a global matcher (or an equivalent matcher that also covers
+`/_gridline/worker/:path*`):
+
+```ts
+const contentSecurityPolicy = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
+  "worker-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+].join("; ");
+
+const nextConfig: NextConfig = {
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: contentSecurityPolicy },
+        ],
+      },
+    ];
+  },
+};
+
+export default withGridline(nextConfig);
+```
+
+The `'unsafe-inline'` entries accommodate the basic Next.js example and may be
+replaced by the host's existing nonce or hash policy. Do not replace
+`'wasm-unsafe-eval'` with the broader `'unsafe-eval'` token.
+
+`withGridline` assigns a release-versioned same-origin worker asset prefix by
+default. This changes the worker's actual HTTP URL on every Gridline upgrade,
+preventing an immutable cached worker response from retaining stale CSP
+metadata. A custom CDN can be supplied with
+`withGridline(nextConfig, { workerAssetPrefix: "https://cdn.example.com/v1" })`;
+the CDN must serve the worker assets and the required CSP itself.
+
 ## Workspace
 
 - `crates/gridline-core` — Rust workbook model, XLSX parser, formatter, formula primitives, and WASM viewport API.

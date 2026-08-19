@@ -7,6 +7,7 @@ import type {
   EngineResponse,
 } from "./worker-protocol";
 import { toEngineErrorPayload } from "./errors";
+import { GRIDLINE_VERSION } from "../version";
 
 let handle: WorkbookHandle | undefined;
 let initialization: Promise<unknown> | undefined;
@@ -81,12 +82,14 @@ self.addEventListener("message", async (event: MessageEvent<EngineRequest>) => {
       id: request.id,
       ok: true,
       payload: payload as EnginePayload,
+      workerVersion: GRIDLINE_VERSION,
     } satisfies EngineResponse);
   } catch (error) {
     self.postMessage({
       id: request.id,
       ok: false,
       error: toEngineErrorPayload(error),
+      workerVersion: GRIDLINE_VERSION,
     } satisfies EngineResponse);
   }
 });

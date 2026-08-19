@@ -25,12 +25,27 @@ if (!cargoVersion) {
 
 versions.add(cargoVersion);
 
+const viewerVersionSource = await readFile(
+  new URL("packages/gridline-react/src/version.ts", workspace),
+  "utf8",
+);
+const viewerSourceVersion = viewerVersionSource.match(
+  /GRIDLINE_VERSION\s*=\s*"([^"]+)"/,
+)?.[1];
+if (!viewerSourceVersion) {
+  throw new Error("Could not read GRIDLINE_VERSION from source");
+}
+versions.add(viewerSourceVersion);
+
 if (versions.size !== 1) {
   throw new Error(
     "Publishable package versions must match: " +
       packages
         .map((manifest) => manifest.name + "@" + manifest.version)
-        .concat(`gridline-core@${cargoVersion}`)
+        .concat(
+          `gridline-core@${cargoVersion}`,
+          `GRIDLINE_VERSION@${viewerSourceVersion}`,
+        )
         .join(", "),
   );
 }
