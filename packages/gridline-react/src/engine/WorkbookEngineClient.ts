@@ -30,12 +30,7 @@ export class WorkbookEngineClient {
   private disposed = false;
 
   constructor(worker?: EngineWorker) {
-    this.worker =
-      worker ??
-      new Worker(new URL("./workbook.worker.js", import.meta.url), {
-        type: "module",
-        name: "gridline-engine",
-      });
+    this.worker = worker ?? createGridlineWorker();
     this.worker.addEventListener("message", this.onMessage as EventListener);
     this.worker.addEventListener("error", this.onError as EventListener);
   }
@@ -136,5 +131,32 @@ export class WorkbookEngineClient {
       pending.reject(error);
     }
     this.pending.clear();
+  }
+}
+
+function createGridlineWorker(): Worker {
+  const NativeWorker = globalThis.Worker;
+  // Turbopack replaces the syntactic `new Worker(new URL(...))` below with a
+  // worker factory. Its generic bootstrap filename is stable and it stores
+  // changing module chunks in the URL fragment, which is not part of the HTTP
+  // cache key. Intercept that synchronous factory call just long enough to put
+  // the Gridline release in the requested bootstrap URL's query string.
+  const VersionedWorker = class extends NativeWorker {
+    constructor(scriptURL: string | URL, options?: WorkerOptions) {
+      const versionedURL = new URL(scriptURL);
+      versionedURL.searchParams.set("gridline-worker", GRIDLINE_VERSION);
+      super(versionedURL, options);
+    }
+  };
+  // No other browser task can run between this assignment and the finally
+  // block; construction is synchronous and the native is always restored.
+  globalThis.Worker = VersionedWorker;
+  try {
+    return new Worker(new URL("./workbook.worker.js", import.meta.url), {
+      type: "module",
+      name: "gridline-engine",
+    });
+  } finally {
+    globalThis.Worker = NativeWorker;
   }
 }

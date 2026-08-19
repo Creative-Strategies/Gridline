@@ -47,7 +47,8 @@ object, so a header attached only to the viewer route does not authorize WASM
 compilation in the worker. Keep the broader `'unsafe-eval'` source disabled.
 
 For the default Next.js integration, apply the policy globally or include both
-the application route and `/_gridline/worker/:path*` in the header matchers.
+the application route and worker assets under `/_next/static/` in the header
+matchers.
 The reference application uses:
 
 ```ts
@@ -73,12 +74,11 @@ Adapt the other directives to the host application. In particular, a
 nonce-based Next.js policy can remove the example's `'unsafe-inline'` values;
 the Gridline requirement is the narrowly scoped `'wasm-unsafe-eval'` value.
 
-`withGridline` also assigns a release-versioned same-origin prefix to the
-worker bootstrap and its module chunks. Next.js rewrites the versioned route to
-its normal static assets, so each Gridline release changes the worker's actual
-HTTP cache key while retaining immutable caching within a release. If a custom
-`workerAssetPrefix` is supplied, the platform or CDN must route that versioned
-prefix and return the same CSP on its worker responses.
+Gridline appends its package version to the worker bootstrap's real HTTP query
+string (for example, `?gridline-worker=0.2.1`). Each release therefore changes
+the worker's cache key while retaining immutable caching within a release.
+`withGridline` also defaults Turbopack's worker-specific asset prefix to the
+same origin, even when the application's ordinary Next.js assets use a CDN.
 
 ## Platform controller
 

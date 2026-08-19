@@ -31,6 +31,36 @@ class FakeWorker implements EngineWorker {
 }
 
 describe("WorkbookEngineClient", () => {
+  it("puts the Gridline release in the worker HTTP cache key", () => {
+    const originalWorker = globalThis.Worker;
+    const constructed: Array<{ options?: WorkerOptions; url: URL }> = [];
+    class NativeWorkerStub {
+      constructor(scriptURL: string | URL, options?: WorkerOptions) {
+        constructed.push({ url: new URL(scriptURL), options });
+      }
+
+      addEventListener() {}
+      postMessage() {}
+      terminate() {}
+    }
+    globalThis.Worker = NativeWorkerStub as unknown as typeof Worker;
+    try {
+      const client = new WorkbookEngineClient();
+      expect(constructed).toHaveLength(1);
+      expect(constructed[0]?.url.searchParams.get("gridline-worker")).toBe(
+        GRIDLINE_VERSION,
+      );
+      expect(constructed[0]?.options).toMatchObject({
+        name: "gridline-engine",
+        type: "module",
+      });
+      expect(globalThis.Worker).toBe(NativeWorkerStub);
+      client.dispose();
+    } finally {
+      globalThis.Worker = originalWorker;
+    }
+  });
+
   it("correlates worker responses", async () => {
     const worker = new FakeWorker();
     const client = new WorkbookEngineClient(worker);

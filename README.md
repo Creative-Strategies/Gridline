@@ -34,8 +34,8 @@ document and worker responses**. Keep ordinary JavaScript `'unsafe-eval'`
 disabled. A route-only header for the page is insufficient because a worker is
 its own CSP global object.
 
-For Next.js, use a global matcher (or an equivalent matcher that also covers
-`/_gridline/worker/:path*`):
+For Next.js, use a global matcher (or equivalent matchers that cover both the
+page and Next.js worker assets under `/_next/static/`):
 
 ```ts
 const contentSecurityPolicy = [
@@ -66,12 +66,11 @@ The `'unsafe-inline'` entries accommodate the basic Next.js example and may be
 replaced by the host's existing nonce or hash policy. Do not replace
 `'wasm-unsafe-eval'` with the broader `'unsafe-eval'` token.
 
-`withGridline` assigns a release-versioned same-origin worker asset prefix by
-default. This changes the worker's actual HTTP URL on every Gridline upgrade,
-preventing an immutable cached worker response from retaining stale CSP
-metadata. A custom CDN can be supplied with
-`withGridline(nextConfig, { workerAssetPrefix: "https://cdn.example.com/v1" })`;
-the CDN must serve the worker assets and the required CSP itself.
+Gridline adds its release version to the worker bootstrap's real HTTP query
+string (for example, `?gridline-worker=0.2.1`). This changes the worker cache
+key on every Gridline upgrade, preventing an immutable cached worker response
+from retaining stale CSP metadata. The `withGridline` helper also keeps the
+worker bootstrap same-origin when ordinary Next.js assets use a CDN.
 
 ## Workspace
 

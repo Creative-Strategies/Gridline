@@ -38,8 +38,9 @@ upgrades cannot reuse an immutable worker bootstrap cached by an earlier
 Gridline release. If the application sends a Content Security Policy,
 `script-src` must contain `'wasm-unsafe-eval'` on both document and worker
 responses. Use a global header matcher (or explicitly cover
-`/_gridline/worker/:path*`) and keep the broader JavaScript `'unsafe-eval'`
-token disabled. See the repository README for a complete Next.js example.
+Next.js worker assets under `/_next/static/`) and keep the broader JavaScript
+`'unsafe-eval'` token disabled. See the repository README for a complete
+Next.js example.
 
 Render the viewer from a client component:
 

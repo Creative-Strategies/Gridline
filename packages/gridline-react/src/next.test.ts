@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { NextConfig } from "next";
 import { withGridline } from "./next";
-import { GRIDLINE_WORKER_ASSET_PREFIX } from "./version";
 
 type WebpackContext = Parameters<NonNullable<NextConfig["webpack"]>>[1];
 
@@ -10,7 +9,7 @@ function webpackContext(isServer: boolean) {
 }
 
 describe("withGridline", () => {
-  it("uses Turbopack-compatible settings by default", async () => {
+  it("uses same-origin Turbopack worker assets by default", () => {
     const nextConfig = withGridline({
       reactStrictMode: true,
       transpilePackages: ["customer-package", "gridline-viewer"],
@@ -23,15 +22,8 @@ describe("withGridline", () => {
       "gridline-wasm",
     ]);
     expect(nextConfig.webpack).toBeUndefined();
-    expect(nextConfig.experimental?.turbopackWorkerAssetPrefix).toBe(
-      GRIDLINE_WORKER_ASSET_PREFIX,
-    );
-    await expect(nextConfig.rewrites?.()).resolves.toEqual([
-      {
-        source: `${GRIDLINE_WORKER_ASSET_PREFIX}/_next/:path*`,
-        destination: "/_next/:path*",
-      },
-    ]);
+    expect(nextConfig.experimental?.turbopackWorkerAssetPrefix).toBe("");
+    expect(nextConfig.rewrites).toBeUndefined();
   });
 
   it("preserves an application's existing bundler configuration", () => {
@@ -72,29 +64,8 @@ describe("withGridline", () => {
       experiments: { layers: true, asyncWebAssembly: true },
       output: {
         clean: true,
-        workerPublicPath: `${GRIDLINE_WORKER_ASSET_PREFIX}/_next/`,
         webassemblyModuleFilename: "static/wasm/[modulehash].wasm",
       },
-    });
-  });
-
-  it("prepends its worker route without discarding structured rewrites", async () => {
-    const existing = {
-      beforeFiles: [{ source: "/before", destination: "/before-target" }],
-      afterFiles: [{ source: "/after", destination: "/after-target" }],
-      fallback: [{ source: "/fallback", destination: "/fallback-target" }],
-    };
-    const nextConfig = withGridline({ rewrites: async () => existing });
-
-    await expect(nextConfig.rewrites?.()).resolves.toEqual({
-      ...existing,
-      beforeFiles: [
-        {
-          source: `${GRIDLINE_WORKER_ASSET_PREFIX}/_next/:path*`,
-          destination: "/_next/:path*",
-        },
-        ...existing.beforeFiles,
-      ],
     });
   });
 
