@@ -32,6 +32,13 @@ type PaintPane = {
   cover: boolean;
 };
 
+// Canvas text is attacker-controlled workbook data. Keep layout work and the
+// string handed to fillText bounded on the main thread while allowing normal
+// long financial labels to render unchanged.
+export const MAX_CANVAS_TEXT_CHARACTERS = 16_384;
+export const MAX_TEXT_MEASUREMENTS = 8_192;
+export const MAX_TEXT_LINES = 4_096;
+
 const colors = {
   canvas: "#ffffff",
   chrome: "#f6f8fa",
@@ -259,6 +266,10 @@ function paintText(
   zoom: number,
 ) {
   if (!text) return;
+  const boundedText =
+    text.length > MAX_CANVAS_TEXT_CHARACTERS
+      ? `${text.slice(0, MAX_CANVAS_TEXT_CHARACTERS - 1)}…`
+      : text;
   const fontSize = Math.max(8, style.font.size * zoom);
   context.font = `${style.font.italic ? "italic " : ""}${style.font.bold ? "600 " : "400 "}${fontSize}px ${style.font.family || "Arial"}, sans-serif`;
   context.fillStyle = style.font.color ?? colors.text;
@@ -273,8 +284,13 @@ function paintText(
     ? Math.max(1, Math.floor((height - padding) / lineHeight))
     : 1;
   const lines = style.alignment.wrapText
-    ? wrapText(text, Math.max(1, width - padding * 2), (line) => context.measureText(line).width, maxLines)
-    : [text];
+    ? wrapText(
+        boundedText,
+        Math.max(1, width - padding * 2),
+        (line) => context.measureText(line).width,
+        maxLines,
+      )
+    : [boundedText];
   const blockHeight = lines.length * lineHeight;
   const vertical = style.alignment.vertical?.toLowerCase();
   const firstBaseline =
@@ -307,12 +323,29 @@ export function wrapText(
   maxLines = Number.POSITIVE_INFINITY,
 ) {
   if (!text || maxWidth <= 0 || maxLines < 1) return [];
+  const boundedText = text.slice(0, MAX_CANVAS_TEXT_CHARACTERS);
   const lines: string[] = [];
-  const paragraphs = text.split(/\r?\n/);
-  let truncated = false;
+  const paragraphs = boundedText.split(/\r?\n/);
+  let truncated = boundedText.length < text.length;
+  let measurementCount = 0;
+  const lineLimit = Math.min(maxLines, MAX_TEXT_LINES);
+
+  const measureLine = (line: string) => {
+    if (measurementCount >= MAX_TEXT_MEASUREMENTS) {
+      truncated = true;
+      return undefined;
+    }
+    measurementCount += 1;
+    const measured = measure(line);
+    if (!Number.isFinite(measured)) {
+      truncated = true;
+      return undefined;
+    }
+    return measured;
+  };
 
   const pushLine = (line: string) => {
-    if (lines.length >= maxLines) {
+    if (lines.length >= lineLimit) {
       truncated = true;
       return false;
     }
@@ -320,40 +353,79 @@ export function wrapText(
     return true;
   };
 
+  const splitWord = (word: string) => {
+    const chunks: string[] = [];
+    let remainder = word;
+    while (remainder) {
+      const remainderWidth = measureLine(remainder);
+      if (remainderWidth === undefined) return chunks.length ? chunks : undefined;
+      if (remainderWidth <= maxWidth || remainder.length === 1) {
+        chunks.push(remainder);
+        return chunks;
+      }
+
+      // Binary search the largest prefix that fits. This avoids the
+      // quadratic character-by-character scan that a hostile unbroken token
+      // would otherwise trigger.
+      let low = 1;
+      let high = remainder.length - 1;
+      let best = 0;
+      while (low <= high) {
+        const middle = Math.floor((low + high) / 2);
+        const width = measureLine(remainder.slice(0, middle));
+        if (width === undefined) return chunks.length ? chunks : undefined;
+        if (width <= maxWidth) {
+          best = middle;
+          low = middle + 1;
+        } else {
+          high = middle - 1;
+        }
+      }
+      // Preserve the previous behavior for a single glyph wider than the
+      // cell: it is still emitted and clipped by the canvas pane.
+      const split = best || 1;
+      chunks.push(remainder.slice(0, split));
+      remainder = remainder.slice(split);
+    }
+    return chunks;
+  };
+
   for (const paragraph of paragraphs) {
-    if (lines.length >= maxLines) break;
+    if (lines.length >= lineLimit) break;
     if (!paragraph.trim()) {
       pushLine("");
       continue;
     }
     let current = "";
     for (const word of paragraph.trim().split(/\s+/)) {
-      const chunks: string[] = [];
-      let remainder = word;
-      while (measure(remainder) > maxWidth && remainder.length > 1) {
-        let split = remainder.length - 1;
-        while (split > 1 && measure(remainder.slice(0, split)) > maxWidth) split -= 1;
-        chunks.push(remainder.slice(0, split));
-        remainder = remainder.slice(split);
+      const chunks = splitWord(word);
+      if (!chunks) {
+        if (current) pushLine(current);
+        current = "";
+        break;
       }
-      chunks.push(remainder);
       for (const chunk of chunks) {
         const candidate = current ? `${current} ${chunk}` : chunk;
-        if (!current || measure(candidate) <= maxWidth) {
+        const candidateWidth = current ? measureLine(candidate) : 0;
+        if (!current || (candidateWidth !== undefined && candidateWidth <= maxWidth)) {
           current = candidate;
           continue;
         }
         if (!pushLine(current)) break;
         current = chunk;
       }
-      if (lines.length >= maxLines) break;
+      if (lines.length >= lineLimit || measurementCount >= MAX_TEXT_MEASUREMENTS) break;
     }
-    if (lines.length < maxLines && current) pushLine(current);
+    if (lines.length < lineLimit && current) pushLine(current);
   }
 
   if (truncated && lines.length) {
     let last = lines[lines.length - 1];
-    while (last && measure(`${last}…`) > maxWidth) last = last.slice(0, -1);
+    while (last) {
+      const width = measureLine(`${last}…`);
+      if (width === undefined || width <= maxWidth) break;
+      last = last.slice(0, -1);
+    }
     lines[lines.length - 1] = `${last}…`;
   }
   return lines;

@@ -5,6 +5,11 @@ const VERSION = 1;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 const PBKDF2_ITERATIONS = 210_000;
+// Keep the format's current work factor, but reject attacker-controlled
+// headers that could turn a browser unlock into an unbounded CPU operation.
+// Two million SHA-256 rounds is deliberately well above our 210k writer
+// default while still giving callers a predictable upper bound.
+export const MAX_PBKDF2_ITERATIONS = 2_000_000;
 const FIXED_HEADER_BYTES = MAGIC.length + 1 + 1 + 1 + 4 + 2 + 2;
 
 export type GridlineEncryptedDocument = {
@@ -87,6 +92,7 @@ export async function decryptGridlineDocument(
     saltLength < 8 ||
     ivLength < 12 ||
     iterations < 100_000 ||
+    iterations > MAX_PBKDF2_ITERATIONS ||
     headerLength >= bytes.byteLength
   ) {
     throw new GridlineError("DECRYPTION_FAILED", "Encrypted document header is invalid");

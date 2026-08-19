@@ -6,6 +6,11 @@ use std::collections::BTreeMap;
 pub const DEFAULT_COLUMN_WIDTH: f32 = 96.0;
 pub const DEFAULT_ROW_HEIGHT: f32 = 24.0;
 
+// CSV export materializes the full used rectangle, including blank cells. Keep
+// both the work area and the resulting download bounded for browser callers.
+const MAX_CSV_CELLS: u64 = 4_000_000;
+const MAX_CSV_BYTES: usize = 64 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CellCoord {
@@ -392,21 +397,53 @@ impl Workbook {
             .sheets
             .get(sheet)
             .ok_or(GridlineError::SheetOutOfRange(sheet))?;
-        let mut csv = String::new();
+        let row_count = u64::from(worksheet.max_row) + 1;
+        let column_count = u64::from(worksheet.max_column) + 1;
+        let cell_area = row_count
+            .checked_mul(column_count)
+            .ok_or_else(|| GridlineError::ResourceLimit("CSV export area overflowed".into()))?;
+        if cell_area > MAX_CSV_CELLS {
+            return Err(GridlineError::ResourceLimit(format!(
+                "CSV export covers {cell_area} cells; limit is {MAX_CSV_CELLS}"
+            )));
+        }
+        let minimum_bytes = cell_area
+            .checked_add(row_count)
+            .ok_or_else(|| GridlineError::ResourceLimit("CSV export size overflowed".into()))?;
+        if minimum_bytes > MAX_CSV_BYTES as u64 {
+            return Err(GridlineError::ResourceLimit(format!(
+                "CSV export exceeds {MAX_CSV_BYTES} bytes"
+            )));
+        }
+        let mut csv = String::with_capacity(minimum_bytes as usize);
         for row in 0..=worksheet.max_row {
             for column in 0..=worksheet.max_column {
-                if column > 0 {
-                    csv.push(',');
-                }
+                let separator = usize::from(column > 0);
                 if let Some(cell) = worksheet.cell(CellCoord::new(row, column)) {
                     let text = format_cell(
                         &cell.value,
                         &self.style(cell.style_id).number_format,
                         self.date_1904,
                     );
-                    csv.push_str(&escape_csv(&text));
+                    let protect_formula =
+                        matches!(&cell.value, CellValue::String(_) | CellValue::Error(_));
+                    let escaped = escape_csv_field(&text, protect_formula);
+                    let field_bytes = separator.checked_add(escaped.len()).ok_or_else(|| {
+                        GridlineError::ResourceLimit("CSV export size overflowed".into())
+                    })?;
+                    ensure_csv_capacity(csv.len(), field_bytes)?;
+                    if separator != 0 {
+                        csv.push(',');
+                    }
+                    csv.push_str(&escaped);
+                } else {
+                    ensure_csv_capacity(csv.len(), separator)?;
+                    if separator != 0 {
+                        csv.push(',');
+                    }
                 }
             }
+            ensure_csv_capacity(csv.len(), 1)?;
             csv.push('\n');
         }
         Ok(csv)
@@ -471,11 +508,48 @@ pub fn column_label(mut column: u32) -> String {
     label
 }
 
-fn escape_csv(value: &str) -> String {
-    if value.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.into()
+fn escape_csv_field(value: &str, protect_formula: bool) -> String {
+    let dangerous_prefix = protect_formula
+        && value
+            .chars()
+            .find(|character| !character.is_whitespace())
+            .is_some_and(|character| matches!(character, '=' | '+' | '-' | '@'));
+    let quoted = value.contains([',', '"', '\n', '\r']);
+    let escaped_quotes = value.bytes().filter(|byte| *byte == b'"').count();
+    let prefix_len = usize::from(dangerous_prefix);
+    let mut escaped = String::with_capacity(
+        value
+            .len()
+            .saturating_add(escaped_quotes)
+            .saturating_add(prefix_len)
+            .saturating_add(usize::from(quoted) * 2),
+    );
+    if quoted {
+        escaped.push('"');
+    }
+    if dangerous_prefix {
+        // A leading apostrophe makes Excel/Sheets treat the field as text while
+        // retaining the original string (including leading whitespace).
+        escaped.push('\'');
+    }
+    for character in value.chars() {
+        if character == '"' {
+            escaped.push('"');
+        }
+        escaped.push(character);
+    }
+    if quoted {
+        escaped.push('"');
+    }
+    escaped
+}
+
+fn ensure_csv_capacity(current: usize, additional: usize) -> Result<()> {
+    match current.checked_add(additional) {
+        Some(total) if total <= MAX_CSV_BYTES => Ok(()),
+        _ => Err(GridlineError::ResourceLimit(format!(
+            "CSV export exceeds {MAX_CSV_BYTES} bytes"
+        ))),
     }
 }
 
@@ -842,7 +916,93 @@ mod tests {
 
     #[test]
     fn csv_escapes_special_values() {
-        assert_eq!(escape_csv("north, east"), "\"north, east\"");
-        assert_eq!(escape_csv("quoted \"value\""), "\"quoted \"\"value\"\"\"");
+        assert_eq!(escape_csv_field("north, east", false), "\"north, east\"");
+        assert_eq!(
+            escape_csv_field("quoted \"value\"", false),
+            "\"quoted \"\"value\"\"\""
+        );
+    }
+
+    fn export_fixture(cells: impl IntoIterator<Item = Cell>) -> Workbook {
+        let mut worksheet = Worksheet::new("Export");
+        for cell in cells {
+            worksheet.insert(cell);
+        }
+        Workbook {
+            title: "Export fixture".into(),
+            sheets: vec![worksheet],
+            styles: vec![CellStyle::default()],
+            date_1904: false,
+        }
+    }
+
+    #[test]
+    fn csv_neutralizes_formula_like_strings_but_preserves_numeric_negatives() {
+        let workbook = export_fixture([
+            Cell {
+                coord: CellCoord::new(0, 0),
+                value: CellValue::String("=SUM(A1:A2)".into()),
+                formula: None,
+                style_id: 0,
+            },
+            Cell {
+                coord: CellCoord::new(1, 0),
+                value: CellValue::Number(-12.5),
+                formula: None,
+                style_id: 0,
+            },
+            Cell {
+                coord: CellCoord::new(2, 0),
+                value: CellValue::String("  +not-a-formula".into()),
+                formula: None,
+                style_id: 0,
+            },
+        ]);
+        assert_eq!(
+            workbook.export_csv(0).unwrap(),
+            "'=SUM(A1:A2)\n-12.5\n'  +not-a-formula\n"
+        );
+    }
+
+    #[test]
+    fn csv_neutralization_preserves_rfc_quoting_and_multiline_text() {
+        let workbook = export_fixture([Cell {
+            coord: CellCoord::new(0, 0),
+            value: CellValue::String("\t@mention, \"quoted\"\nnext".into()),
+            formula: None,
+            style_id: 0,
+        }]);
+        assert_eq!(
+            workbook.export_csv(0).unwrap(),
+            "\"'\t@mention, \"\"quoted\"\"\nnext\"\n"
+        );
+    }
+
+    #[test]
+    fn csv_rejects_a_far_cell_before_iterating_the_rectangle() {
+        let workbook = export_fixture([Cell {
+            coord: CellCoord::new(1_048_575, 16_383),
+            value: CellValue::Number(1.0),
+            formula: None,
+            style_id: 0,
+        }]);
+        assert!(matches!(
+            workbook.export_csv(0),
+            Err(GridlineError::ResourceLimit(message)) if message.contains("CSV export")
+        ));
+    }
+
+    #[test]
+    fn csv_rejects_output_that_exceeds_the_download_limit() {
+        let workbook = export_fixture([Cell {
+            coord: CellCoord::new(0, 0),
+            value: CellValue::String("x".repeat(MAX_CSV_BYTES)),
+            formula: None,
+            style_id: 0,
+        }]);
+        assert!(matches!(
+            workbook.export_csv(0),
+            Err(GridlineError::ResourceLimit(message)) if message.contains("bytes")
+        ));
     }
 }

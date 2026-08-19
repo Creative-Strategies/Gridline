@@ -15,6 +15,11 @@ const MAX_EXPANDED_BYTES: u64 = 256 * 1024 * 1024;
 const MAX_PART_BYTES: u64 = 96 * 1024 * 1024;
 const MAX_SHEETS: usize = 256;
 const MAX_CELLS: usize = 2_000_000;
+// Excel cells are limited to 32,767 characters. Enforce that boundary while
+// parsing so a single shared or inline string cannot become an oversized
+// worker message and synchronous Canvas layout input.
+const MAX_CELL_TEXT_CHARACTERS: usize = 32_767;
+const MAX_SHARED_STRINGS: usize = MAX_CELLS;
 const MAX_CHART_POINTS: u64 = 10_000;
 const MAX_CHART_ANCHOR_SPAN: u32 = 4_096;
 
@@ -83,16 +88,17 @@ pub fn parse_workbook(bytes: &[u8]) -> Result<Workbook> {
         }
         let target = resolve_part("xl", &relationship.target)?;
         let worksheet_xml = read_required_part(&mut archive, &target, &mut expanded)?;
-        let mut worksheet =
-            parse_worksheet(&worksheet_xml, sheet.name, &shared_strings, styles.len())?;
+        let remaining_cell_budget = MAX_CELLS.saturating_sub(cell_count);
+        let mut worksheet = parse_worksheet(
+            &worksheet_xml,
+            sheet.name,
+            &shared_strings,
+            styles.len(),
+            remaining_cell_budget,
+        )?;
         worksheet.state = sheet.state;
         evaluate_missing_formulas(&mut worksheet);
         cell_count += worksheet.cells.len();
-        if cell_count > MAX_CELLS {
-            return Err(GridlineError::ResourceLimit(format!(
-                "workbook contains more than {MAX_CELLS} populated cells"
-            )));
-        }
         sheet_targets.push(target);
         sheets.push(worksheet);
     }
@@ -223,28 +229,45 @@ fn parse_shared_strings(xml: &[u8]) -> Result<Vec<String>> {
     let mut buffer = Vec::new();
     let mut strings = Vec::new();
     let mut current: Option<String> = None;
+    let mut current_characters = 0usize;
     let mut in_text = false;
     loop {
         match reader.read_event_into(&mut buffer)? {
-            Event::Start(event) if is_tag(&event, b"si") => current = Some(String::new()),
+            Event::Start(event) if is_tag(&event, b"si") => {
+                current = Some(String::new());
+                current_characters = 0;
+            }
             Event::Start(event) if is_tag(&event, b"t") => in_text = true,
             Event::Text(text) if in_text => {
                 if let Some(current) = &mut current {
-                    current.push_str(&decode_text(&text)?);
+                    push_bounded_cell_text(current, &mut current_characters, &decode_text(&text)?)?;
                 }
             }
             Event::CData(text) if in_text => {
                 if let Some(current) = &mut current {
-                    current.push_str(&decode_cdata(&text)?);
+                    push_bounded_cell_text(
+                        current,
+                        &mut current_characters,
+                        &decode_cdata(&text)?,
+                    )?;
                 }
             }
             Event::GeneralRef(reference) if in_text => {
                 if let Some(current) = &mut current {
-                    current.push_str(&decode_reference(&reference)?);
+                    push_bounded_cell_text(
+                        current,
+                        &mut current_characters,
+                        &decode_reference(&reference)?,
+                    )?;
                 }
             }
             Event::End(event) if event.local_name().as_ref() == b"t" => in_text = false,
             Event::End(event) if event.local_name().as_ref() == b"si" => {
+                if strings.len() >= MAX_SHARED_STRINGS {
+                    return Err(GridlineError::ResourceLimit(format!(
+                        "workbook contains more than {MAX_SHARED_STRINGS} shared strings"
+                    )));
+                }
                 strings.push(current.take().unwrap_or_default());
             }
             Event::Eof => break,
@@ -576,6 +599,7 @@ struct CellBuilder {
     value: Option<String>,
     formula: Option<String>,
     inline: String,
+    inline_characters: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -590,6 +614,7 @@ fn parse_worksheet(
     name: String,
     shared_strings: &[String],
     style_count: usize,
+    cell_budget: usize,
 ) -> Result<Worksheet> {
     let mut reader = xml_reader(xml);
     let mut buffer = Vec::new();
@@ -597,6 +622,8 @@ fn parse_worksheet(
     let mut current_cell: Option<CellBuilder> = None;
     let mut capture: Option<Capture> = None;
     let mut capture_text = String::new();
+    let mut capture_characters = 0usize;
+    let mut parsed_cells = 0usize;
 
     loop {
         match reader.read_event_into(&mut buffer)? {
@@ -609,13 +636,28 @@ fn parse_worksheet(
                     b"row" => apply_row(&reader, &event, &mut worksheet)?,
                     b"col" => apply_column(&reader, &event, &mut worksheet)?,
                     b"c" => current_cell = Some(begin_cell(&reader, &event, style_count)?),
-                    b"v" => begin_capture(&mut capture, &mut capture_text, Capture::Value),
-                    b"f" => begin_capture(&mut capture, &mut capture_text, Capture::Formula),
+                    b"v" => begin_capture(
+                        &mut capture,
+                        &mut capture_text,
+                        &mut capture_characters,
+                        Capture::Value,
+                    ),
+                    b"f" => begin_capture(
+                        &mut capture,
+                        &mut capture_text,
+                        &mut capture_characters,
+                        Capture::Formula,
+                    ),
                     b"t" if current_cell
                         .as_ref()
                         .is_some_and(|cell| cell.cell_type == "inlineStr") =>
                     {
-                        begin_capture(&mut capture, &mut capture_text, Capture::Inline)
+                        begin_capture(
+                            &mut capture,
+                            &mut capture_text,
+                            &mut capture_characters,
+                            Capture::Inline,
+                        )
                     }
                     b"mergeCell" => apply_merge(&reader, &event, &mut worksheet)?,
                     b"pane" => apply_pane(&reader, &event, &mut worksheet)?,
@@ -628,22 +670,40 @@ fn parse_worksheet(
                 b"row" => apply_row(&reader, &event, &mut worksheet)?,
                 b"col" => apply_column(&reader, &event, &mut worksheet)?,
                 b"c" => {
+                    if parsed_cells >= cell_budget {
+                        return Err(GridlineError::ResourceLimit(format!(
+                            "workbook contains more than {MAX_CELLS} populated cells"
+                        )));
+                    }
                     let cell =
                         finish_cell(begin_cell(&reader, &event, style_count)?, shared_strings);
                     worksheet.insert(cell);
+                    parsed_cells += 1;
                 }
                 b"mergeCell" => apply_merge(&reader, &event, &mut worksheet)?,
                 b"pane" => apply_pane(&reader, &event, &mut worksheet)?,
                 _ => {}
             },
             Event::Text(text) if capture.is_some() => {
-                capture_text.push_str(&decode_text(&text)?);
+                push_bounded_cell_text(
+                    &mut capture_text,
+                    &mut capture_characters,
+                    &decode_text(&text)?,
+                )?;
             }
             Event::CData(text) if capture.is_some() => {
-                capture_text.push_str(&decode_cdata(&text)?);
+                push_bounded_cell_text(
+                    &mut capture_text,
+                    &mut capture_characters,
+                    &decode_cdata(&text)?,
+                )?;
             }
             Event::GeneralRef(reference) if capture.is_some() => {
-                capture_text.push_str(&decode_reference(&reference)?);
+                push_bounded_cell_text(
+                    &mut capture_text,
+                    &mut capture_characters,
+                    &decode_reference(&reference)?,
+                )?;
             }
             Event::End(event) => match event.local_name().as_ref() {
                 b"v" if capture == Some(Capture::Value) => {
@@ -661,14 +721,24 @@ fn parse_worksheet(
                 }
                 b"t" if capture == Some(Capture::Inline) => {
                     if let Some(cell) = &mut current_cell {
-                        cell.inline.push_str(&capture_text);
+                        push_bounded_cell_text(
+                            &mut cell.inline,
+                            &mut cell.inline_characters,
+                            &capture_text,
+                        )?;
                     }
                     capture_text.clear();
                     capture = None;
                 }
                 b"c" => {
                     if let Some(cell) = current_cell.take() {
+                        if parsed_cells >= cell_budget {
+                            return Err(GridlineError::ResourceLimit(format!(
+                                "workbook contains more than {MAX_CELLS} populated cells"
+                            )));
+                        }
                         worksheet.insert(finish_cell(cell, shared_strings));
+                        parsed_cells += 1;
                     }
                 }
                 _ => {}
@@ -1108,6 +1178,7 @@ fn begin_cell(
         value: None,
         formula: None,
         inline: String::new(),
+        inline_characters: 0,
     })
 }
 
@@ -1350,9 +1421,36 @@ fn decode_reference(reference: &BytesRef<'_>) -> Result<String> {
         .unwrap_or_else(|| format!("&{value};")))
 }
 
-fn begin_capture(capture: &mut Option<Capture>, buffer: &mut String, value: Capture) {
+fn begin_capture(
+    capture: &mut Option<Capture>,
+    buffer: &mut String,
+    character_count: &mut usize,
+    value: Capture,
+) {
     *capture = Some(value);
     buffer.clear();
+    *character_count = 0;
+}
+
+fn push_bounded_cell_text(
+    target: &mut String,
+    character_count: &mut usize,
+    fragment: &str,
+) -> Result<()> {
+    let fragment_characters = fragment.chars().count();
+    let Some(total) = character_count.checked_add(fragment_characters) else {
+        return Err(GridlineError::ResourceLimit(
+            "cell text length overflowed".into(),
+        ));
+    };
+    if total > MAX_CELL_TEXT_CHARACTERS {
+        return Err(GridlineError::ResourceLimit(format!(
+            "cell text contains more than {MAX_CELL_TEXT_CHARACTERS} characters"
+        )));
+    }
+    target.push_str(fragment);
+    *character_count = total;
+    Ok(())
 }
 
 fn default_font() -> FontStyle {
@@ -1534,6 +1632,7 @@ mod tests {
             "Checks".into(),
             &[],
             1,
+            MAX_CELLS,
         )
         .unwrap();
         assert_eq!(
@@ -1544,6 +1643,44 @@ mod tests {
                 .as_deref(),
             Some("=IF(1>0,1,0)")
         );
+    }
+
+    #[test]
+    fn rejects_a_cell_before_inserting_when_budget_is_exhausted() {
+        let result = parse_worksheet(
+            br#"<worksheet><sheetData><row r="1"><c r="A1" t="n"><f>SUM(A1:A1)</f></c></row></sheetData></worksheet>"#,
+            "Checks".into(),
+            &[],
+            1,
+            0,
+        );
+        assert!(
+            matches!(result, Err(GridlineError::ResourceLimit(message)) if message.contains("populated cells"))
+        );
+    }
+
+    #[test]
+    fn rejects_oversized_shared_and_inline_cell_text() {
+        let oversized = "x".repeat(MAX_CELL_TEXT_CHARACTERS + 1);
+        let shared_xml = format!("<sst><si><t>{oversized}</t></si></sst>");
+        assert!(matches!(
+            parse_shared_strings(shared_xml.as_bytes()),
+            Err(GridlineError::ResourceLimit(message)) if message.contains("cell text")
+        ));
+
+        let worksheet_xml = format!(
+            "<worksheet><sheetData><row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>{oversized}</t></is></c></row></sheetData></worksheet>"
+        );
+        assert!(matches!(
+            parse_worksheet(
+                worksheet_xml.as_bytes(),
+                "Checks".into(),
+                &[],
+                1,
+                MAX_CELLS,
+            ),
+            Err(GridlineError::ResourceLimit(message)) if message.contains("cell text")
+        ));
     }
 
     fn fixture_workbook() -> Vec<u8> {

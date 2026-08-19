@@ -3,6 +3,12 @@ use std::collections::HashSet;
 
 const MAX_TOKENS: usize = 4_096;
 const MAX_RANGE_CELLS: u64 = 100_000;
+const MAX_EXPANDED_VALUES_PER_FORMULA: usize = 100_000;
+const MAX_EXPANDED_VALUES_PER_WORKBOOK: usize = 1_000_000;
+const MAX_FUNCTION_ARGUMENTS: usize = 256;
+const MAX_PARSE_DEPTH: usize = 256;
+const MAX_REFERENCE_DEPTH: usize = 256;
+const MAX_EVALUATION_STEPS: usize = 250_000;
 const MAX_RECALC_PASSES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -121,12 +127,23 @@ fn evaluate_formula_value_in_workbook(
     sheet_index: usize,
     formula: &str,
 ) -> Option<Scalar> {
+    let mut budget = EvaluationBudget::default();
+    evaluate_formula_value_in_workbook_with_budget(workbook, sheet_index, formula, &mut budget)
+}
+
+fn evaluate_formula_value_in_workbook_with_budget(
+    workbook: &Workbook,
+    sheet_index: usize,
+    formula: &str,
+    budget: &mut EvaluationBudget,
+) -> Option<Scalar> {
     if sheet_index >= workbook.sheets.len() {
         return None;
     }
     let mut context = EvalContext {
         workbook,
         visiting: HashSet::new(),
+        budget,
     };
     context.evaluate_formula(sheet_index, formula)
 }
@@ -134,6 +151,7 @@ fn evaluate_formula_value_in_workbook(
 /// Fill blank formula cells in a single worksheet. The workbook pass below
 /// is what resolves cross-sheet dependencies after all sheets are parsed.
 pub fn evaluate_missing_formulas(sheet: &mut Worksheet) {
+    let mut budget = EvaluationBudget::default();
     for _ in 0..MAX_RECALC_PASSES.min(4) {
         let pending = sheet
             .cells
@@ -156,7 +174,7 @@ pub fn evaluate_missing_formulas(sheet: &mut Worksheet) {
         let updates = pending
             .into_iter()
             .filter_map(|(coord, formula)| {
-                evaluate_formula_value_in_workbook(&snapshot, 0, &formula)
+                evaluate_formula_value_in_workbook_with_budget(&snapshot, 0, &formula, &mut budget)
                     .map(|value| (coord, value.into_cell_value()))
             })
             .collect::<Vec<_>>();
@@ -174,6 +192,7 @@ pub fn evaluate_missing_formulas(sheet: &mut Worksheet) {
 /// Recalculate blank formula cells after all worksheets have been parsed.
 /// Cached XLSX values are preserved; this fills only missing cached results.
 pub fn evaluate_missing_formulas_in_workbook(workbook: &mut Workbook) {
+    let mut budget = EvaluationBudget::default();
     for _ in 0..MAX_RECALC_PASSES {
         let snapshot = workbook.clone();
         let pending = snapshot
@@ -198,8 +217,13 @@ pub fn evaluate_missing_formulas_in_workbook(workbook: &mut Workbook) {
         let updates = pending
             .into_iter()
             .filter_map(|(sheet_index, coord, formula)| {
-                evaluate_formula_value_in_workbook(&snapshot, sheet_index, &formula)
-                    .map(|value| (sheet_index, coord, value.into_cell_value()))
+                evaluate_formula_value_in_workbook_with_budget(
+                    &snapshot,
+                    sheet_index,
+                    &formula,
+                    &mut budget,
+                )
+                .map(|value| (sheet_index, coord, value.into_cell_value()))
             })
             .collect::<Vec<_>>();
         if updates.is_empty() {
@@ -217,19 +241,65 @@ pub fn evaluate_missing_formulas_in_workbook(workbook: &mut Workbook) {
     }
 }
 
-struct EvalContext<'a> {
-    workbook: &'a Workbook,
-    visiting: HashSet<(usize, u32, u32)>,
+#[derive(Default)]
+struct EvaluationBudget {
+    steps: usize,
+    reference_depth: usize,
+    expanded_values: usize,
 }
 
-impl EvalContext<'_> {
+impl EvaluationBudget {
+    fn consume_step(&mut self) -> bool {
+        if self.steps >= MAX_EVALUATION_STEPS {
+            return false;
+        }
+        self.steps += 1;
+        true
+    }
+
+    fn enter_reference(&mut self) -> bool {
+        if self.reference_depth >= MAX_REFERENCE_DEPTH {
+            return false;
+        }
+        self.reference_depth += 1;
+        true
+    }
+
+    fn leave_reference(&mut self) {
+        self.reference_depth = self.reference_depth.saturating_sub(1);
+    }
+
+    fn consume_expanded_values(&mut self, count: usize) -> bool {
+        let Some(total) = self.expanded_values.checked_add(count) else {
+            return false;
+        };
+        if total > MAX_EXPANDED_VALUES_PER_WORKBOOK {
+            return false;
+        }
+        self.expanded_values = total;
+        true
+    }
+}
+
+struct EvalContext<'workbook, 'budget> {
+    workbook: &'workbook Workbook,
+    visiting: HashSet<(usize, u32, u32)>,
+    budget: &'budget mut EvaluationBudget,
+}
+
+impl EvalContext<'_, '_> {
     fn evaluate_formula(&mut self, sheet_index: usize, formula: &str) -> Option<Scalar> {
+        if !self.budget.consume_step() {
+            return None;
+        }
         let tokens = tokenize(formula.strip_prefix('=').unwrap_or(formula))?;
         let mut parser = Parser {
             context: self,
             sheet_index,
             tokens,
             cursor: 0,
+            parse_depth: 0,
+            expansion_budget: MAX_EXPANDED_VALUES_PER_FORMULA,
         };
         let result = parser.expression()?;
         (parser.cursor == parser.tokens.len()).then_some(result)
@@ -241,12 +311,14 @@ impl EvalContext<'_> {
         coord: CellCoord,
         formula: &str,
     ) -> Option<Scalar> {
-        if !self.visiting.insert((sheet_index, coord.row, coord.column)) {
+        let key = (sheet_index, coord.row, coord.column);
+        if self.visiting.contains(&key) || !self.budget.enter_reference() {
             return None;
         }
+        self.visiting.insert(key);
         let result = self.evaluate_formula(sheet_index, formula);
-        self.visiting
-            .remove(&(sheet_index, coord.row, coord.column));
+        self.visiting.remove(&key);
+        self.budget.leave_reference();
         result
     }
 
@@ -284,11 +356,13 @@ impl EvalContext<'_> {
     }
 }
 
-struct Parser<'context, 'workbook> {
-    context: &'context mut EvalContext<'workbook>,
+struct Parser<'context, 'workbook, 'budget> {
+    context: &'context mut EvalContext<'workbook, 'budget>,
     sheet_index: usize,
     tokens: Vec<Token>,
     cursor: usize,
+    parse_depth: usize,
+    expansion_budget: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -301,7 +375,7 @@ enum Comparison {
     GreaterEqual,
 }
 
-impl Parser<'_, '_> {
+impl Parser<'_, '_, '_> {
     fn expression(&mut self) -> Option<Scalar> {
         let mut value = self.additive()?;
         let comparison = match self.peek() {
@@ -381,11 +455,11 @@ impl Parser<'_, '_> {
         match self.peek() {
             Some(Token::Plus) => {
                 self.cursor += 1;
-                self.unary()
+                self.recurse(|parser| parser.unary())
             }
             Some(Token::Minus) => {
                 self.cursor += 1;
-                self.unary().and_then(|value| {
+                self.recurse(|parser| parser.unary()).and_then(|value| {
                     arithmetic_number(&value).map(|number| Scalar::Number(-number))
                 })
             }
@@ -406,7 +480,7 @@ impl Parser<'_, '_> {
                 _ => self.function(&name),
             },
             Token::LeftParen => {
-                let value = self.expression()?;
+                let value = self.recurse(|parser| parser.expression())?;
                 self.consume(Token::RightParen).then_some(value)
             }
             _ => None,
@@ -420,6 +494,9 @@ impl Parser<'_, '_> {
         let mut arguments = Vec::new();
         if !matches!(self.peek(), Some(Token::RightParen)) {
             loop {
+                if arguments.len() >= MAX_FUNCTION_ARGUMENTS {
+                    return None;
+                }
                 arguments.push(self.argument()?);
                 if self.consume(Token::Comma) {
                     continue;
@@ -544,7 +621,8 @@ impl Parser<'_, '_> {
             self.cursor += 3;
             return Some(argument);
         }
-        self.expression().map(Argument::Value)
+        self.recurse(|parser| parser.expression())
+            .map(Argument::Value)
     }
 
     fn argument_scalar(&mut self, argument: &Argument) -> Option<Scalar> {
@@ -555,16 +633,22 @@ impl Parser<'_, '_> {
     }
 
     fn expand_arguments(&mut self, arguments: &[Argument]) -> Option<Vec<Scalar>> {
-        arguments
-            .iter()
-            .map(|argument| self.expand_argument(argument))
-            .collect::<Option<Vec<Vec<_>>>>()
-            .map(|groups| groups.into_iter().flatten().collect())
+        let mut values = Vec::new();
+        for argument in arguments {
+            values.extend(self.expand_argument(argument)?);
+        }
+        Some(values)
     }
 
     fn expand_argument(&mut self, argument: &Argument) -> Option<Vec<Scalar>> {
         match argument {
-            Argument::Value(value) => Some(vec![value.clone()]),
+            Argument::Value(value) => {
+                if self.expansion_budget == 0 || !self.context.budget.consume_expanded_values(1) {
+                    return None;
+                }
+                self.expansion_budget -= 1;
+                Some(vec![value.clone()])
+            }
             Argument::Range(start, end) => {
                 let sheet_name = start.sheet.clone().or_else(|| end.sheet.clone());
                 if start.sheet.is_some()
@@ -581,24 +665,39 @@ impl Parser<'_, '_> {
                 if cell_count > MAX_RANGE_CELLS {
                     return None;
                 }
-                let references = (start.coord.row..=end.coord.row)
-                    .flat_map(|row| {
-                        let sheet_name = sheet_name.clone();
-                        (start.coord.column..=end.coord.column).map(move |column| CellReference {
+                let cell_count = usize::try_from(cell_count).ok()?;
+                if cell_count > self.expansion_budget
+                    || !self.context.budget.consume_expanded_values(cell_count)
+                {
+                    return None;
+                }
+                self.expansion_budget -= cell_count;
+                let mut values = Vec::with_capacity(cell_count);
+                for row in start.coord.row..=end.coord.row {
+                    for column in start.coord.column..=end.coord.column {
+                        let reference = CellReference {
                             sheet: sheet_name.clone(),
                             coord: CellCoord::new(row, column),
-                        })
-                    })
-                    .collect::<Vec<_>>();
-                references
-                    .iter()
-                    .map(|reference| {
-                        self.context
-                            .value_for_reference(self.sheet_index, reference)
-                    })
-                    .collect()
+                        };
+                        values.push(
+                            self.context
+                                .value_for_reference(self.sheet_index, &reference)?,
+                        );
+                    }
+                }
+                Some(values)
             }
         }
+    }
+
+    fn recurse<T>(&mut self, operation: impl FnOnce(&mut Self) -> Option<T>) -> Option<T> {
+        if self.parse_depth >= MAX_PARSE_DEPTH {
+            return None;
+        }
+        self.parse_depth += 1;
+        let result = operation(self);
+        self.parse_depth -= 1;
+        result
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -987,5 +1086,93 @@ mod tests {
             workbook.sheets[2].cell(CellCoord::new(1, 0)).unwrap().value,
             CellValue::Number(3.0)
         );
+    }
+
+    #[test]
+    fn rejects_aggregate_expansion_over_budget() {
+        let sheet = sheet();
+        assert_eq!(evaluate_formula(&sheet, "=SUM(A1:A50000,B1:B50001)"), None);
+    }
+
+    #[test]
+    fn shares_the_expansion_budget_across_workbook_recalculation() {
+        let workbook = Workbook {
+            title: "Budget.xlsx".into(),
+            sheets: vec![Worksheet::new("Budget")],
+            styles: vec![CellStyle::default()],
+            date_1904: false,
+        };
+        let mut budget = EvaluationBudget::default();
+        for _ in 0..(MAX_EXPANDED_VALUES_PER_WORKBOOK / MAX_RANGE_CELLS as usize) {
+            assert!(
+                evaluate_formula_value_in_workbook_with_budget(
+                    &workbook,
+                    0,
+                    "=COUNTBLANK(A1:A100000)",
+                    &mut budget,
+                )
+                .is_some()
+            );
+        }
+        assert!(
+            evaluate_formula_value_in_workbook_with_budget(
+                &workbook,
+                0,
+                "=COUNTBLANK(A1:A100000)",
+                &mut budget,
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn rejects_excessive_function_arguments() {
+        let formula = format!(
+            "=SUM({})",
+            std::iter::repeat_n("A1", MAX_FUNCTION_ARGUMENTS + 1)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        assert_eq!(evaluate_formula(&sheet(), &formula), None);
+    }
+
+    #[test]
+    fn rejects_deep_unary_and_parenthesized_expressions() {
+        let unary = format!("={}1", "+".repeat(MAX_PARSE_DEPTH + 1));
+        assert_eq!(evaluate_formula(&sheet(), &unary), None);
+
+        let parenthesized = format!(
+            "={}1{}",
+            "(".repeat(MAX_PARSE_DEPTH + 1),
+            ")".repeat(MAX_PARSE_DEPTH + 1)
+        );
+        assert_eq!(evaluate_formula(&sheet(), &parenthesized), None);
+    }
+
+    #[test]
+    fn rejects_deep_blank_formula_reference_chain() {
+        let mut chain = Worksheet::new("Chain");
+        for row in 0..=MAX_REFERENCE_DEPTH as u32 + 8 {
+            chain.insert(Cell {
+                coord: CellCoord::new(row, 0),
+                value: CellValue::Blank,
+                formula: Some(format!("=A{}", row + 2)),
+                style_id: 0,
+            });
+        }
+        chain.insert(Cell {
+            coord: CellCoord::new(MAX_REFERENCE_DEPTH as u32 + 9, 0),
+            value: CellValue::Number(1.0),
+            formula: None,
+            style_id: 0,
+        });
+        let workbook = Workbook {
+            title: "Chain.xlsx".into(),
+            sheets: vec![chain],
+            styles: vec![CellStyle::default()],
+            date_1904: false,
+        };
+
+        assert_eq!(evaluate_formula_in_workbook(&workbook, 0, "=A1"), None);
     }
 }

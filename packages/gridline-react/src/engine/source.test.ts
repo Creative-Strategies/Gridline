@@ -71,6 +71,28 @@ describe("loadWorkbookSource", () => {
     ).rejects.toMatchObject({ code: "RESOURCE_LIMIT" });
   });
 
+  it("cancels an active cloud reader when the byte limit is exceeded", async () => {
+    const cancel = vi.fn();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3, 4]));
+      },
+      cancel,
+    });
+
+    await expect(
+      loadWorkbookSource(
+        { type: "url", url: "https://cdn.example.test/stream.xlsx" },
+        {
+          signal: new AbortController().signal,
+          maxBytes: 3,
+          fetcher: async () => new Response(body),
+        },
+      ),
+    ).rejects.toMatchObject({ code: "RESOURCE_LIMIT" });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
   it("rejects unsuccessful responses returned by a custom resolver", async () => {
     await expect(
       loadWorkbookSource(

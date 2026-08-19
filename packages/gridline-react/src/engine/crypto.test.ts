@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   decryptGridlineDocument,
   encryptGridlineDocument,
   isGridlineEncryptedDocument,
+  MAX_PBKDF2_ITERATIONS,
 } from "./crypto";
 import { GridlineError } from "./errors";
 
@@ -33,5 +34,19 @@ describe("Gridline encrypted documents", () => {
       code: "DECRYPTION_FAILED",
       recoverable: true,
     } satisfies Partial<GridlineError>);
+  });
+
+  it("rejects an excessive PBKDF2 work factor before deriving a key", async () => {
+    const encrypted = await encryptGridlineDocument(new Uint8Array([1, 2, 3]), "correct");
+    const bytes = new Uint8Array(await encrypted.blob.arrayBuffer());
+    // GRIDLINE (8), version (1), salt length (1), IV length (1), iterations (4).
+    new DataView(bytes.buffer).setUint32(11, MAX_PBKDF2_ITERATIONS + 1, false);
+    const deriveKey = vi.spyOn(globalThis.crypto.subtle, "deriveKey");
+
+    await expect(decryptGridlineDocument(bytes, "correct")).rejects.toMatchObject({
+      code: "DECRYPTION_FAILED",
+    });
+    expect(deriveKey).not.toHaveBeenCalled();
+    deriveKey.mockRestore();
   });
 });

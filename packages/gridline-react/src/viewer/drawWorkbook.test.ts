@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { CellStyle, DisplayList } from "../engine/types";
-import { paintWorkbook, wrapText } from "./drawWorkbook";
+import {
+  MAX_CANVAS_TEXT_CHARACTERS,
+  MAX_TEXT_LINES,
+  MAX_TEXT_MEASUREMENTS,
+  paintWorkbook,
+  wrapText,
+} from "./drawWorkbook";
 
 const measure = (line: string) => line.length;
 
@@ -23,6 +29,23 @@ describe("canvas text layout", () => {
   it("preserves explicit line breaks and supports empty cells", () => {
     expect(wrapText("first\nsecond", 20, measure)).toEqual(["first", "second"]);
     expect(wrapText("", 20, measure)).toEqual([]);
+  });
+
+  it("bounds layout work for a huge unbroken cell value", () => {
+    let measurements = 0;
+    const lines = wrapText(
+      "X".repeat(MAX_CANVAS_TEXT_CHARACTERS * 16),
+      4,
+      (line) => {
+        measurements += 1;
+        return line.length;
+      },
+    );
+
+    expect(measurements).toBeLessThanOrEqual(MAX_TEXT_MEASUREMENTS);
+    expect(lines.length).toBeLessThanOrEqual(MAX_TEXT_LINES);
+    expect(lines.at(-1)).toMatch(/…$/);
+    expect(lines.join("").length).toBeLessThanOrEqual(MAX_CANVAS_TEXT_CHARACTERS + 1);
   });
 });
 

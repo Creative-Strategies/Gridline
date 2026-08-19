@@ -217,6 +217,7 @@ async function readData(
     const reader = data.body.getReader();
     const chunks: Uint8Array[] = [];
     let loaded = 0;
+    let completed = false;
     try {
       while (true) {
         options.signal.throwIfAborted();
@@ -232,7 +233,17 @@ async function readData(
           percent: declared ? Math.min(100, (loaded / declared) * 100) : undefined,
         });
       }
+      completed = true;
     } finally {
+      if (!completed) {
+        // Abort/limit/read errors leave the stream active. Cancel it before
+        // releasing the lock so an underlying fetch can stop downloading.
+        try {
+          await reader.cancel();
+        } catch {
+          // Preserve the original load error even if cancellation fails.
+        }
+      }
       reader.releaseLock();
     }
     const output = new Uint8Array(loaded);
