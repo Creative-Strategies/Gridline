@@ -194,8 +194,7 @@ pub fn evaluate_missing_formulas(sheet: &mut Worksheet) {
 pub fn evaluate_missing_formulas_in_workbook(workbook: &mut Workbook) {
     let mut budget = EvaluationBudget::default();
     for _ in 0..MAX_RECALC_PASSES {
-        let snapshot = workbook.clone();
-        let pending = snapshot
+        let pending = workbook
             .sheets
             .iter()
             .enumerate()
@@ -214,6 +213,7 @@ pub fn evaluate_missing_formulas_in_workbook(workbook: &mut Workbook) {
         if pending.is_empty() {
             break;
         }
+        let snapshot = workbook.clone();
         let updates = pending
             .into_iter()
             .filter_map(|(sheet_index, coord, formula)| {
@@ -339,11 +339,15 @@ impl EvalContext<'_, '_> {
         reference: &CellReference,
     ) -> Option<Scalar> {
         let sheet_index = self.sheet_index(current_sheet, reference.sheet.as_deref())?;
+        self.value_for_cell(sheet_index, reference.coord)
+    }
+
+    fn value_for_cell(&mut self, sheet_index: usize, coord: CellCoord) -> Option<Scalar> {
         let Some(cell) = self
             .workbook
             .sheets
             .get(sheet_index)
-            .and_then(|sheet| sheet.cell(reference.coord))
+            .and_then(|sheet| sheet.cell(coord))
         else {
             return Some(Scalar::Blank);
         };
@@ -352,7 +356,7 @@ impl EvalContext<'_, '_> {
             return Some(value);
         }
         let formula = cell.formula.clone()?;
-        self.evaluate_cell_formula(sheet_index, reference.coord, &formula)
+        self.evaluate_cell_formula(sheet_index, coord, &formula)
     }
 }
 
@@ -525,61 +529,59 @@ impl Parser<'_, '_, '_> {
             }
             "ABS" => arithmetic_number(&self.argument_scalar(arguments.first()?)?)
                 .map(|value| Scalar::Number(value.abs())),
-            "SUM" => Some(Scalar::Number(
-                self.expand_arguments(&arguments)?
-                    .iter()
-                    .filter_map(Scalar::as_number)
-                    .sum(),
-            )),
+            "SUM" => {
+                let mut sum = 0.0;
+                self.visit_arguments(&arguments, |value| {
+                    if let Some(number) = value.as_number() {
+                        sum += number;
+                    }
+                })?;
+                Some(Scalar::Number(sum))
+            }
             "AVERAGE" => {
-                let values = self
-                    .expand_arguments(&arguments)?
-                    .into_iter()
-                    .filter_map(|value| value.as_number())
-                    .collect::<Vec<_>>();
-                (!values.is_empty())
-                    .then(|| Scalar::Number(values.iter().sum::<f64>() / values.len() as f64))
+                let mut sum = 0.0;
+                let mut count = 0usize;
+                self.visit_arguments(&arguments, |value| {
+                    if let Some(number) = value.as_number() {
+                        sum += number;
+                        count += 1;
+                    }
+                })?;
+                (count > 0).then(|| Scalar::Number(sum / count as f64))
             }
             "MIN" | "MAX" => {
-                let values = self
-                    .expand_arguments(&arguments)?
-                    .into_iter()
-                    .filter_map(|value| value.as_number())
-                    .collect::<Vec<_>>();
-                let result = if name == "MIN" {
-                    values.into_iter().reduce(f64::min)
-                } else {
-                    values.into_iter().reduce(f64::max)
-                }?;
-                Some(Scalar::Number(result))
+                let mut result: Option<f64> = None;
+                self.visit_arguments(&arguments, |value| {
+                    if let Some(number) = value.as_number() {
+                        result = Some(match result {
+                            Some(previous) if name == "MIN" => previous.min(number),
+                            Some(previous) => previous.max(number),
+                            None => number,
+                        });
+                    }
+                })?;
+                result.map(Scalar::Number)
             }
-            "COUNT" => Some(Scalar::Number(
-                self.expand_arguments(&arguments)?
-                    .iter()
-                    .filter(|value| value.as_number().is_some())
-                    .count() as f64,
-            )),
-            "COUNTA" => Some(Scalar::Number(
-                self.expand_arguments(&arguments)?
-                    .iter()
-                    .filter(|value| !value.is_blank())
-                    .count() as f64,
-            )),
-            "COUNTBLANK" => Some(Scalar::Number(
-                self.expand_arguments(&arguments)?
-                    .iter()
-                    .filter(|value| value.is_blank())
-                    .count() as f64,
-            )),
+            "COUNT" | "COUNTA" | "COUNTBLANK" => {
+                let mut count = 0usize;
+                self.visit_arguments(&arguments, |value| {
+                    let matches = match name {
+                        "COUNT" => value.as_number().is_some(),
+                        "COUNTA" => !value.is_blank(),
+                        _ => value.is_blank(),
+                    };
+                    count += usize::from(matches);
+                })?;
+                Some(Scalar::Number(count as f64))
+            }
             "COUNTIF" => {
                 let range = arguments.first()?;
                 let criterion = self.argument_scalar(arguments.get(1)?)?;
-                Some(Scalar::Number(
-                    self.expand_argument(range)?
-                        .iter()
-                        .filter(|value| criteria_match(value, &criterion))
-                        .count() as f64,
-                ))
+                let mut count = 0usize;
+                self.visit_argument(range, |value| {
+                    count += usize::from(criteria_match(&value, &criterion));
+                })?;
+                Some(Scalar::Number(count as f64))
             }
             "COUNTIFS" => {
                 if arguments.len() < 2 || arguments.len() % 2 != 0 {
@@ -632,25 +634,34 @@ impl Parser<'_, '_, '_> {
         }
     }
 
-    fn expand_arguments(&mut self, arguments: &[Argument]) -> Option<Vec<Scalar>> {
-        let mut values = Vec::new();
+    fn visit_arguments(
+        &mut self,
+        arguments: &[Argument],
+        mut visit: impl FnMut(Scalar),
+    ) -> Option<()> {
         for argument in arguments {
-            values.extend(self.expand_argument(argument)?);
+            self.visit_argument(argument, &mut visit)?;
         }
-        Some(values)
+        Some(())
     }
 
     fn expand_argument(&mut self, argument: &Argument) -> Option<Vec<Scalar>> {
+        let mut values = Vec::new();
+        self.visit_argument(argument, |value| values.push(value))?;
+        Some(values)
+    }
+
+    fn visit_argument(&mut self, argument: &Argument, mut visit: impl FnMut(Scalar)) -> Option<()> {
         match argument {
             Argument::Value(value) => {
                 if self.expansion_budget == 0 || !self.context.budget.consume_expanded_values(1) {
                     return None;
                 }
                 self.expansion_budget -= 1;
-                Some(vec![value.clone()])
+                visit(value.clone());
+                Some(())
             }
             Argument::Range(start, end) => {
-                let sheet_name = start.sheet.clone().or_else(|| end.sheet.clone());
                 if start.sheet.is_some()
                     && end.sheet.is_some()
                     && start.sheet.as_ref() != end.sheet.as_ref()
@@ -672,20 +683,17 @@ impl Parser<'_, '_, '_> {
                     return None;
                 }
                 self.expansion_budget -= cell_count;
-                let mut values = Vec::with_capacity(cell_count);
+                let sheet_name = start.sheet.as_deref().or(end.sheet.as_deref());
+                let sheet_index = self.context.sheet_index(self.sheet_index, sheet_name)?;
                 for row in start.coord.row..=end.coord.row {
                     for column in start.coord.column..=end.coord.column {
-                        let reference = CellReference {
-                            sheet: sheet_name.clone(),
-                            coord: CellCoord::new(row, column),
-                        };
-                        values.push(
-                            self.context
-                                .value_for_reference(self.sheet_index, &reference)?,
-                        );
+                        let value = self
+                            .context
+                            .value_for_cell(sheet_index, CellCoord::new(row, column))?;
+                        visit(value);
                     }
                 }
-                Some(values)
+                Some(())
             }
         }
     }
@@ -1024,6 +1032,21 @@ mod tests {
         assert_eq!(
             evaluate_formula(&sheet, "=MAX(A1:A3)-MIN(A1:A3)"),
             Some(20.0)
+        );
+    }
+
+    #[test]
+    fn streams_mixed_aggregate_arguments_and_sparse_blank_ranges() {
+        let sheet = sheet();
+        assert_eq!(evaluate_formula(&sheet, "=SUM(A1:A3,5,TRUE)"), Some(66.0));
+        assert_eq!(evaluate_formula(&sheet, "=AVERAGE(A1:A3,40)"), Some(25.0));
+        assert_eq!(evaluate_formula(&sheet, "=MIN(A1:A3,-5)"), Some(-5.0));
+        assert_eq!(evaluate_formula(&sheet, "=MAX(A1:A3,45)"), Some(45.0));
+        assert_eq!(evaluate_formula(&sheet, "=COUNT(A1:A5)"), Some(3.0));
+        assert_eq!(evaluate_formula(&sheet, "=COUNTA(A1:A5)"), Some(3.0));
+        assert_eq!(
+            evaluate_formula(&sheet, "=COUNTBLANK(A1:A100000)"),
+            Some(99_997.0)
         );
     }
 
