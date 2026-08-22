@@ -13,17 +13,34 @@
 }
 
 .gridline {
+  --gridline-topbar-height: 56px;
+  --gridline-toolbar-height: 48px;
+  --gridline-formula-height: 46px;
+  --gridline-tabs-height: 48px;
+  --gridline-status-height: 36px;
   background: var(--gridline-white);
   border: 1px solid var(--gridline-line);
   border-radius: 6px;
   color: var(--gridline-text);
   display: grid;
   font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  grid-template-rows: 56px 48px 46px minmax(0, 1fr) 48px 36px;
+  grid-template-rows: var(
+    --gridline-layout,
+    56px 48px 46px minmax(0, 1fr) 48px 36px
+  );
   isolation: isolate;
   min-height: 560px;
   overflow: hidden;
   position: relative;
+}
+
+.gridline--compact {
+  --gridline-topbar-height: 40px;
+  --gridline-toolbar-height: 38px;
+  --gridline-formula-height: 38px;
+  --gridline-tabs-height: 36px;
+  --gridline-status-height: 30px;
+  min-height: 280px;
 }
 
 .gridline button,
@@ -85,6 +102,26 @@
   display: flex;
   flex: 0 0 auto;
   gap: 10px;
+  margin-left: auto;
+}
+
+.gridline__compact-zoom {
+  align-items: center;
+  display: flex;
+  gap: 2px;
+}
+
+.gridline--compact .gridline__topbar {
+  padding: 0 8px;
+}
+
+.gridline--compact .gridline__top-actions {
+  gap: 6px;
+}
+
+.gridline--compact .gridline__action-button {
+  height: 30px;
+  padding: 0 9px;
 }
 
 .gridline__action-button,
@@ -436,6 +473,10 @@
   min-width: 0;
 }
 
+.gridline__tabs--compact {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .gridline__tab-arrows {
   align-items: center;
   border-right: 1px solid var(--gridline-line);
@@ -462,6 +503,12 @@
   min-width: 150px;
   padding: 0 20px;
   position: relative;
+}
+
+.gridline__tabs--compact nav button {
+  font-size: 12px;
+  min-width: 96px;
+  padding: 0 14px;
 }
 
 .gridline__tabs nav button:hover {
@@ -531,7 +578,7 @@
   display: flex;
   font-size: 13px;
   gap: 10px;
-  grid-row: 4 / 7;
+  grid-row: var(--gridline-boot-row, 4 / 7);
   justify-content: center;
 }
 
@@ -553,7 +600,7 @@
   height: 2px;
   left: 0;
   position: absolute;
-  top: 149px;
+  top: var(--gridline-loading-offset, 149px);
   transition: width 160ms ease-out;
   width: var(--gridline-progress, 36%);
   z-index: 10;
@@ -725,8 +772,19 @@
 
 @media (max-width: 680px) {
   .gridline {
+    --gridline-topbar-height: 52px;
+    --gridline-toolbar-height: 44px;
+    --gridline-formula-height: 42px;
+    --gridline-tabs-height: 44px;
+    --gridline-status-height: 34px;
     border-radius: 0;
-    grid-template-rows: 52px 44px 42px minmax(0, 1fr) 44px 34px;
+  }
+  .gridline--compact {
+    --gridline-topbar-height: 38px;
+    --gridline-toolbar-height: 36px;
+    --gridline-formula-height: 36px;
+    --gridline-tabs-height: 34px;
+    --gridline-status-height: 28px;
   }
   .gridline__topbar { padding: 0 8px; }
   .gridline__title { padding-inline: 10px; }

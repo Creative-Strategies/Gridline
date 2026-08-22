@@ -1,5 +1,10 @@
 export { GridlineViewer } from "./viewer/GridlineViewer";
 export type { GridlineViewerProps } from "./viewer/GridlineViewer";
+export type {
+  GridlineChromeOptions,
+  GridlineInitialSheet,
+  GridlineViewerMode,
+} from "./viewer/options";
 export { WorkbookEngineClient } from "./engine/WorkbookEngineClient";
 export { useWorkbookEngine } from "./engine/useWorkbookEngine";
 export { GridlineController } from "./engine/GridlineController";

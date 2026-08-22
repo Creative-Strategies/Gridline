@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -32,6 +33,13 @@ import {
 } from "./Chrome";
 import { WorkbookCanvas } from "./WorkbookCanvas";
 import { cellAddress } from "./geometry";
+import {
+  resolveGridlineChrome,
+  resolveInitialSheet,
+  type GridlineChromeOptions,
+  type GridlineInitialSheet,
+  type GridlineViewerMode,
+} from "./options";
 import "./gridline.css";
 
 export type GridlinePasswordRequest = {
@@ -46,6 +54,10 @@ export type GridlineViewerProps = {
   autoLoadDemo?: boolean;
   initialFile?: File;
   initialZoom?: number;
+  initialSheet?: GridlineInitialSheet;
+  defaultSheet?: GridlineInitialSheet;
+  mode?: GridlineViewerMode;
+  chrome?: GridlineChromeOptions;
   maxSourceBytes?: number;
   fetcher?: typeof fetch;
   passwordProvider?: (request: GridlinePasswordRequest) => Promise<string | null>;
@@ -67,6 +79,10 @@ export function GridlineViewer({
   autoLoadDemo = source ? false : true,
   initialFile,
   initialZoom = 1,
+  initialSheet,
+  defaultSheet,
+  mode = "full",
+  chrome: chromeOverrides,
   maxSourceBytes,
   fetcher,
   passwordProvider,
@@ -75,15 +91,20 @@ export function GridlineViewer({
   onWorkbookOpen,
   onWorkbookReady,
 }: GridlineViewerProps) {
+  const chrome = useMemo(
+    () => resolveGridlineChrome(mode, chromeOverrides),
+    [chromeOverrides, mode],
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const openedInitialFileRef = useRef(false);
   const lastSourceRef = useRef<GridlineSource | undefined>(undefined);
+  const initializedMetadataRef = useRef<WorkbookMetadata | null>(null);
   const passwordRequestRef = useRef<GridlineError | null>(null);
-  const [activeSheet, setActiveSheet] = useState(0);
+  const [activeSheetIndex, setActiveSheet] = useState(0);
   const [selected, setSelected] = useState<CellCoord>(initialSelection);
   const [selectedCell, setSelectedCell] = useState<CellSnapshot | null>(null);
   const [zoom, setZoom] = useState(() => Math.max(0.5, Math.min(2, initialZoom)));
-  const [railOpen, setRailOpen] = useState(true);
+  const [railOpen, setRailOpen] = useState(chrome.sheetRail);
   const [dragging, setDragging] = useState(false);
   const [transientError, setTransientError] = useState<string | null>(null);
   const [encryptionDialogOpen, setEncryptionDialogOpen] = useState(false);
@@ -111,12 +132,28 @@ export function GridlineViewer({
     onError,
     onProgress: onLoadProgress,
   });
+  const preferredSheet = initialSheet ?? defaultSheet;
+  const activeSheet =
+    metadata && initializedMetadataRef.current !== metadata
+      ? resolveInitialSheet(metadata, preferredSheet)
+      : activeSheetIndex;
 
   useEffect(() => {
     if (window.matchMedia("(max-width: 900px)").matches) setRailOpen(false);
   }, []);
 
   useEffect(() => {
+    if (!metadata || initializedMetadataRef.current === metadata) return;
+    initializedMetadataRef.current = metadata;
+    setActiveSheet(resolveInitialSheet(metadata, preferredSheet));
+    setSelected(initialSelection);
+  }, [metadata, preferredSheet]);
+
+  useEffect(() => {
+    if (!chrome.formulaBar && !chrome.statusBar) {
+      setSelectedCell(null);
+      return;
+    }
     if (!metadata || status === "booting" || activeSheet >= metadata.sheets.length) return;
     let current = true;
     cell(activeSheet, cellAddress(selected))
@@ -133,18 +170,31 @@ export function GridlineViewer({
     return () => {
       current = false;
     };
-  }, [activeSheet, cell, metadata, onError, selected, status]);
+  }, [
+    activeSheet,
+    cell,
+    chrome.formulaBar,
+    chrome.statusBar,
+    metadata,
+    onError,
+    selected,
+    status,
+  ]);
 
-  const resetNavigation = useCallback(() => {
-    setActiveSheet(0);
-    setSelected(initialSelection);
-  }, []);
+  const resetNavigation = useCallback(
+    (nextMetadata: WorkbookMetadata) => {
+      initializedMetadataRef.current = nextMetadata;
+      setActiveSheet(resolveInitialSheet(nextMetadata, preferredSheet));
+      setSelected(initialSelection);
+    },
+    [preferredSheet],
+  );
 
   const openSource = useCallback(
     async (nextSource: GridlineSource) => {
       setTransientError(null);
       const next = await engineOpenSource(nextSource);
-      resetNavigation();
+      resetNavigation(next);
       onWorkbookReady?.({ metadata: next, source: nextSource });
       return next;
     },
@@ -156,7 +206,7 @@ export function GridlineViewer({
       setTransientError(null);
       try {
         const next = await engineOpenFile(file);
-        resetNavigation();
+        resetNavigation(next);
         onWorkbookOpen?.(file);
         onWorkbookReady?.({
           metadata: next,
@@ -318,20 +368,55 @@ export function GridlineViewer({
   );
 
   const error = transientError ?? engineError?.message;
+  const headerRows = [
+    chrome.topBar ? "var(--gridline-topbar-height)" : null,
+    chrome.toolbar ? "var(--gridline-toolbar-height)" : null,
+    chrome.formulaBar ? "var(--gridline-formula-height)" : null,
+  ].filter((row): row is string => row !== null);
+  const layoutRows = [
+    ...headerRows,
+    "minmax(0, 1fr)",
+    chrome.sheetTabs ? "var(--gridline-tabs-height)" : null,
+    chrome.statusBar ? "var(--gridline-status-height)" : null,
+  ].filter((row): row is string => row !== null);
+  const layoutStyle = {
+    "--gridline-layout": layoutRows.join(" "),
+    "--gridline-boot-row": `${headerRows.length + 1} / -1`,
+    "--gridline-loading-offset": headerRows.length
+      ? `calc(${headerRows.join(" + ")} - 1px)`
+      : "0px",
+  } as CSSProperties;
+  const showTopBarZoom = chrome.zoom && !chrome.toolbar;
 
   return (
     <section
-      className={["gridline", className].filter(Boolean).join(" ")}
+      className={[
+        "gridline",
+        mode === "compact" ? "gridline--compact" : null,
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
       data-status={status}
-      onDragEnter={(event) => {
-        event.preventDefault();
-        setDragging(true);
-      }}
-      onDragLeave={(event) => {
-        if (event.currentTarget === event.target) setDragging(false);
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={handleDrop}
+      data-viewer-mode={mode}
+      onDragEnter={
+        chrome.openButton
+          ? (event) => {
+              event.preventDefault();
+              setDragging(true);
+            }
+          : undefined
+      }
+      onDragLeave={
+        chrome.openButton
+          ? (event) => {
+              if (event.currentTarget === event.target) setDragging(false);
+            }
+          : undefined
+      }
+      onDragOver={chrome.openButton ? (event) => event.preventDefault() : undefined}
+      onDrop={chrome.openButton ? handleDrop : undefined}
+      style={layoutStyle}
     >
       <input
         accept=".xlsx,.xlsm,.gridline,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -344,30 +429,51 @@ export function GridlineViewer({
         ref={fileInputRef}
         type="file"
       />
-      <TopBar
-        canDownload={Boolean(document)}
-        encrypted={document?.encrypted ?? false}
-        onDownloadEncrypted={() => setEncryptionDialogOpen(true)}
-        onDownloadOriginal={downloadOriginal}
-        onExport={() => void handleExport()}
-        onOpen={() => fileInputRef.current?.click()}
-        onToggleRail={() => setRailOpen((open) => !open)}
-        railOpen={railOpen}
-        title={metadata?.title ?? document?.name ?? "Workbook viewer"}
-      />
-      <Toolbar onZoom={setZoom} zoom={zoom} />
-      <FormulaBar onSelect={setSelected} selected={selected} cell={selectedCell} />
+      {chrome.topBar ? (
+        <TopBar
+          canDownload={Boolean(document)}
+          encrypted={document?.encrypted ?? false}
+          onDownloadEncrypted={() => setEncryptionDialogOpen(true)}
+          onDownloadOriginal={downloadOriginal}
+          onExport={() => void handleExport()}
+          onOpen={() => fileInputRef.current?.click()}
+          onToggleRail={() => setRailOpen((open) => !open)}
+          onZoom={showTopBarZoom ? setZoom : undefined}
+          railOpen={railOpen}
+          showBranding={chrome.branding}
+          showExportButton={chrome.exportButton}
+          showOpenButton={chrome.openButton}
+          showSheetRailToggle={chrome.sheetRail}
+          showTitle={chrome.title}
+          showWorkbookMenu={chrome.workbookMenu}
+          title={metadata?.title ?? document?.name ?? "Workbook viewer"}
+          zoom={showTopBarZoom ? zoom : undefined}
+        />
+      ) : null}
+      {chrome.toolbar ? (
+        <Toolbar
+          onZoom={setZoom}
+          showEditingControls={mode !== "compact"}
+          showZoom={chrome.zoom}
+          zoom={zoom}
+        />
+      ) : null}
+      {chrome.formulaBar ? (
+        <FormulaBar onSelect={setSelected} selected={selected} cell={selectedCell} />
+      ) : null}
 
       {metadata ? (
         <>
           <div className="gridline__workspace">
-            <SheetRail
-              activeSheet={activeSheet}
-              onCollapse={() => setRailOpen(false)}
-              onSelect={setActiveSheet}
-              open={railOpen}
-              sheets={metadata.sheets}
-            />
+            {chrome.sheetRail ? (
+              <SheetRail
+                activeSheet={activeSheet}
+                onCollapse={() => setRailOpen(false)}
+                onSelect={setActiveSheet}
+                open={railOpen}
+                sheets={metadata.sheets}
+              />
+            ) : null}
             <WorkbookCanvas
               activeSheet={activeSheet}
               loadViewport={viewport}
@@ -378,24 +484,31 @@ export function GridlineViewer({
               zoom={zoom}
             />
           </div>
-          <SheetTabs
-            activeSheet={activeSheet}
-            onSelect={setActiveSheet}
-            sheets={metadata.sheets}
-          />
-          <StatusBar
-            busy={status === "loading"}
-            cell={selectedCell}
-            metadata={metadata}
-            selected={selected}
-          />
+          {chrome.sheetTabs ? (
+            <SheetTabs
+              activeSheet={activeSheet}
+              compact={mode === "compact"}
+              onSelect={setActiveSheet}
+              sheets={metadata.sheets}
+            />
+          ) : null}
+          {chrome.statusBar ? (
+            <StatusBar
+              busy={status === "loading"}
+              cell={selectedCell}
+              metadata={metadata}
+              selected={selected}
+            />
+          ) : null}
         </>
       ) : (
         <div className="gridline__boot" role="status">
-          {status === "idle" ? (
+          {status === "idle" && chrome.openButton ? (
             <button onClick={() => fileInputRef.current?.click()} type="button">
               Open a workbook
             </button>
+          ) : status === "idle" ? (
+            <>Waiting for a workbook</>
           ) : (
             <><span /> {progressLabel(progress)}</>
           )}

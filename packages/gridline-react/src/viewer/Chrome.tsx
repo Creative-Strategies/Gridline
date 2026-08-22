@@ -30,6 +30,14 @@ export function TopBar({
   onExport,
   onDownloadOriginal,
   onDownloadEncrypted,
+  showBranding = true,
+  showTitle = true,
+  showSheetRailToggle = true,
+  showOpenButton = true,
+  showExportButton = true,
+  showWorkbookMenu = true,
+  zoom,
+  onZoom,
 }: {
   title: string;
   railOpen: boolean;
@@ -40,6 +48,14 @@ export function TopBar({
   onExport: () => void;
   onDownloadOriginal: () => void;
   onDownloadEncrypted: () => void;
+  showBranding?: boolean;
+  showTitle?: boolean;
+  showSheetRailToggle?: boolean;
+  showOpenButton?: boolean;
+  showExportButton?: boolean;
+  showWorkbookMenu?: boolean;
+  zoom?: number;
+  onZoom?: (zoom: number) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -59,81 +75,98 @@ export function TopBar({
   }, [menuOpen]);
   return (
     <header className="gridline__topbar">
-      <button
-        aria-label={railOpen ? "Hide sheet navigation" : "Show sheet navigation"}
-        className={`gridline__icon-button gridline__rail-menu${
-          railOpen ? "" : " gridline__rail-menu--visible"
-        }`}
-        onClick={onToggleRail}
-        type="button"
-      >
-        <MenuIcon />
-      </button>
-      <div className="gridline__brand" aria-label="Gridline">
-        <GridMark />
-        <span>Gridline</span>
-      </div>
-      <div className="gridline__title" title={title}>
-        {title}
-      </div>
-      <div className="gridline__top-actions">
-        <button className="gridline__action-button" onClick={onOpen} type="button">
-          <FolderIcon />
-          <span>Open workbook</span>
+      {showSheetRailToggle ? (
+        <button
+          aria-label={railOpen ? "Hide sheet navigation" : "Show sheet navigation"}
+          className={`gridline__icon-button gridline__rail-menu${
+            railOpen ? "" : " gridline__rail-menu--visible"
+          }`}
+          onClick={onToggleRail}
+          type="button"
+        >
+          <MenuIcon />
         </button>
-        <button className="gridline__action-button" onClick={onExport} type="button">
-          <ExportIcon />
-          <span>Export CSV</span>
-        </button>
-        <div className="gridline__about-wrap" ref={menuRef}>
-          <button
-            aria-expanded={menuOpen}
-            aria-haspopup="menu"
-            aria-label="Workbook menu"
-            className="gridline__icon-button"
-            onClick={() => setMenuOpen((open) => !open)}
-            type="button"
-          >
-            <MoreIcon />
-          </button>
-          {menuOpen ? (
-            <div className="gridline__workbook-menu" role="menu">
-              <button
-                disabled={!canDownload}
-                onClick={() => {
-                  onDownloadOriginal();
-                  setMenuOpen(false);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <ExportIcon />
-                <span>
-                  <strong>{encrypted ? "Download encrypted source" : "Download original"}</strong>
-                  <small>Exact bytes received by Gridline</small>
-                </span>
-              </button>
-              <button
-                disabled={!canDownload}
-                onClick={() => {
-                  onDownloadEncrypted();
-                  setMenuOpen(false);
-                }}
-                role="menuitem"
-                type="button"
-              >
-                <FolderIcon />
-                <span>
-                  <strong>Create encrypted copy</strong>
-                  <small>AES-256, password protected</small>
-                </span>
-              </button>
-              <div className="gridline__menu-note">
-                Parsed locally in a Web Worker. Workbook data never leaves your browser.
-              </div>
-            </div>
-          ) : null}
+      ) : null}
+      {showBranding ? (
+        <div className="gridline__brand" aria-label="Gridline">
+          <GridMark />
+          <span>Gridline</span>
         </div>
+      ) : null}
+      {showTitle ? (
+        <div className="gridline__title" title={title}>
+          {title}
+        </div>
+      ) : null}
+      <div className="gridline__top-actions">
+        {zoom !== undefined && onZoom ? (
+          <div className="gridline__compact-zoom" aria-label="Workbook zoom" role="toolbar">
+            <ZoomControls onZoom={onZoom} zoom={zoom} />
+          </div>
+        ) : null}
+        {showOpenButton ? (
+          <button className="gridline__action-button" onClick={onOpen} type="button">
+            <FolderIcon />
+            <span>Open workbook</span>
+          </button>
+        ) : null}
+        {showExportButton ? (
+          <button className="gridline__action-button" onClick={onExport} type="button">
+            <ExportIcon />
+            <span>Export CSV</span>
+          </button>
+        ) : null}
+        {showWorkbookMenu ? (
+          <div className="gridline__about-wrap" ref={menuRef}>
+            <button
+              aria-expanded={menuOpen}
+              aria-haspopup="menu"
+              aria-label="Workbook menu"
+              className="gridline__icon-button"
+              onClick={() => setMenuOpen((open) => !open)}
+              type="button"
+            >
+              <MoreIcon />
+            </button>
+            {menuOpen ? (
+              <div className="gridline__workbook-menu" role="menu">
+                <button
+                  disabled={!canDownload}
+                  onClick={() => {
+                    onDownloadOriginal();
+                    setMenuOpen(false);
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <ExportIcon />
+                  <span>
+                    <strong>{encrypted ? "Download encrypted source" : "Download original"}</strong>
+                    <small>Exact bytes received by Gridline</small>
+                  </span>
+                </button>
+                <button
+                  disabled={!canDownload}
+                  onClick={() => {
+                    onDownloadEncrypted();
+                    setMenuOpen(false);
+                  }}
+                  role="menuitem"
+                  type="button"
+                >
+                  <FolderIcon />
+                  <span>
+                    <strong>Create encrypted copy</strong>
+                    <small>AES-256, password protected</small>
+                  </span>
+                </button>
+                <div className="gridline__menu-note">
+                  Parsed locally in a Web Worker. Workbook data never leaves your browser.
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </header>
   );
@@ -150,19 +183,51 @@ function GridMark() {
 export function Toolbar({
   zoom,
   onZoom,
+  showEditingControls = true,
+  showZoom = true,
+}: {
+  zoom: number;
+  onZoom: (zoom: number) => void;
+  showEditingControls?: boolean;
+  showZoom?: boolean;
+}) {
+  return (
+    <div className="gridline__toolbar" aria-label="Workbook toolbar" role="toolbar">
+      {showEditingControls ? (
+        <>
+          <button className="gridline__tool-button" disabled title="Viewing mode" type="button">
+            <UndoIcon /> <span>Undo</span>
+          </button>
+          <button className="gridline__tool-button" disabled title="Viewing mode" type="button">
+            <RedoIcon /> <span>Redo</span>
+          </button>
+          {showZoom ? <div className="gridline__toolbar-rule" /> : null}
+        </>
+      ) : null}
+      {showZoom ? <ZoomControls onZoom={onZoom} zoom={zoom} /> : null}
+      {showEditingControls ? (
+        <>
+          {showZoom ? <div className="gridline__toolbar-rule" /> : null}
+          <div className="gridline__formula-tool" aria-disabled="true">
+            <span className="gridline__fx">ƒx</span>
+            <span>Formula</span>
+            <ChevronIcon />
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ZoomControls({
+  zoom,
+  onZoom,
 }: {
   zoom: number;
   onZoom: (zoom: number) => void;
 }) {
   return (
-    <div className="gridline__toolbar" aria-label="Workbook toolbar" role="toolbar">
-      <button className="gridline__tool-button" disabled title="Viewing mode" type="button">
-        <UndoIcon /> <span>Undo</span>
-      </button>
-      <button className="gridline__tool-button" disabled title="Viewing mode" type="button">
-        <RedoIcon /> <span>Redo</span>
-      </button>
-      <div className="gridline__toolbar-rule" />
+    <>
       <button
         aria-label="Zoom out"
         className="gridline__icon-button"
@@ -189,13 +254,7 @@ export function Toolbar({
       >
         <PlusIcon />
       </button>
-      <div className="gridline__toolbar-rule" />
-      <div className="gridline__formula-tool" aria-disabled="true">
-        <span className="gridline__fx">ƒx</span>
-        <span>Formula</span>
-        <ChevronIcon />
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -293,16 +352,20 @@ export function SheetTabs({
   sheets,
   activeSheet,
   onSelect,
+  compact = false,
 }: {
   sheets: SheetMetadata[];
   activeSheet: number;
   onSelect: (index: number) => void;
+  compact?: boolean;
 }) {
   return (
-    <div className="gridline__tabs">
-      <div className="gridline__tab-arrows" aria-hidden="true">
-        ‹ <span>›</span>
-      </div>
+    <div className={`gridline__tabs${compact ? " gridline__tabs--compact" : ""}`}>
+      {!compact ? (
+        <div className="gridline__tab-arrows" aria-hidden="true">
+          ‹ <span>›</span>
+        </div>
+      ) : null}
       <nav aria-label="Sheet tabs">
         {sheets.map((sheet, index) => (
           <button
@@ -316,15 +379,17 @@ export function SheetTabs({
           </button>
         ))}
       </nav>
-      <button
-        aria-label="Sheet menu"
-        className="gridline__icon-button"
-        disabled
-        title="No hidden sheets"
-        type="button"
-      >
-        <MenuIcon />
-      </button>
+      {!compact ? (
+        <button
+          aria-label="Sheet menu"
+          className="gridline__icon-button"
+          disabled
+          title="No hidden sheets"
+          type="button"
+        >
+          <MenuIcon />
+        </button>
+      ) : null}
     </div>
   );
 }
