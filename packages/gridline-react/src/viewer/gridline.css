@@ -51,7 +51,8 @@
 
 .gridline button:focus-visible,
 .gridline input:focus-visible,
-.gridline canvas:focus-visible {
+.gridline canvas:focus-visible,
+.gridline__scroller:focus-visible {
   outline: 2px solid var(--gridline-green);
   outline-offset: -2px;
 }
@@ -421,12 +422,14 @@
 }
 
 .gridline__scroller {
+  cursor: cell;
   height: 100%;
   overflow: auto;
   position: relative;
   scrollbar-color: #b9c2ca transparent;
   scrollbar-width: thin;
   width: 100%;
+  z-index: 1;
 }
 
 .gridline__scroll-plane {
@@ -434,11 +437,11 @@
 }
 
 .gridline__canvas {
-  cursor: cell;
   left: 0;
+  pointer-events: none;
   position: absolute;
   top: 0;
-  transform-origin: 0 0;
+  z-index: 0;
 }
 
 .gridline__canvas-loading {

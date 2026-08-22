@@ -152,7 +152,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   );
 
   const handlePointerDown = useCallback(
-    (event: PointerEvent<HTMLCanvasElement>) => {
+    (event: PointerEvent<HTMLDivElement>) => {
       if (!display) return;
       const bounds = event.currentTarget.getBoundingClientRect();
       const coord = hitTestCell(
@@ -170,7 +170,7 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
   );
 
   const handleKeyDown = useCallback(
-    (event: KeyboardEvent<HTMLCanvasElement>) => {
+    (event: KeyboardEvent<HTMLDivElement>) => {
       const deltas: Record<string, CellCoord> = {
         ArrowUp: { row: -1, column: 0 },
         ArrowDown: { row: 1, column: 0 },
@@ -199,27 +199,23 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
 
   return (
     <div className="gridline__canvas-host" ref={hostRef}>
+      <canvas aria-hidden="true" className="gridline__canvas" ref={canvasRef} />
       <div
+        aria-colcount={sheet.columns}
+        aria-label={`${sheet.name} worksheet. Use arrow keys to move between cells.`}
+        aria-rowcount={sheet.rows}
         className="gridline__scroller"
+        onKeyDown={handleKeyDown}
+        onPointerDown={handlePointerDown}
         onScroll={handleScroll}
         ref={scrollRef}
+        role="grid"
+        tabIndex={0}
       >
         <div
           aria-hidden="true"
           className="gridline__scroll-plane"
           style={{ height: planeHeight, width: planeWidth }}
-        />
-        <canvas
-          aria-colcount={sheet.columns}
-          aria-label={`${sheet.name} worksheet. Use arrow keys to move between cells.`}
-          aria-rowcount={sheet.rows}
-          className="gridline__canvas"
-          onKeyDown={handleKeyDown}
-          onPointerDown={handlePointerDown}
-          ref={canvasRef}
-          role="grid"
-          style={{ transform: `translate(${scroll.x}px, ${scroll.y}px)` }}
-          tabIndex={0}
         />
       </div>
       {display ? null : (
