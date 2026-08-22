@@ -31,24 +31,22 @@ pub fn build_viewport_for_pixels(
             "pixel viewport must use finite positive dimensions".into(),
         ));
     }
-    let column_start = axis_index_at(scroll_x.max(0.0), |index| worksheet.column_width(index))
-        .saturating_sub(overscan.min(32));
-    let row_start = axis_index_at(scroll_y.max(0.0), |index| worksheet.row_height(index))
-        .saturating_sub(overscan.min(128));
-    let column_end = axis_end_at(
-        column_start,
-        scroll_x.max(0.0) + width,
-        |index| worksheet.column_width(index),
-        16_384,
-    )
+    let column_start = axis_index_at(scroll_x.max(0.0), 16_384, |index| {
+        worksheet.column_offset(index)
+    })
+    .saturating_sub(overscan.min(32));
+    let row_start = axis_index_at(scroll_y.max(0.0), 1_048_576, |index| {
+        worksheet.row_offset(index)
+    })
+    .saturating_sub(overscan.min(128));
+    let column_end = axis_end_at(column_start, scroll_x.max(0.0) + width, 16_384, |index| {
+        worksheet.column_offset(index)
+    })
     .saturating_add(overscan.min(32))
     .min(16_384);
-    let row_end = axis_end_at(
-        row_start,
-        scroll_y.max(0.0) + height,
-        |index| worksheet.row_height(index),
-        1_048_576,
-    )
+    let row_end = axis_end_at(row_start, scroll_y.max(0.0) + height, 1_048_576, |index| {
+        worksheet.row_offset(index)
+    })
     .saturating_add(overscan.min(128))
     .min(1_048_576);
     build_viewport(
@@ -61,31 +59,32 @@ pub fn build_viewport_for_pixels(
     )
 }
 
-fn axis_index_at(mut offset: f32, size: impl Fn(u32) -> f32) -> u32 {
-    let mut index = 0u32;
-    while index < 1_048_576 {
-        let current = size(index);
-        if current > 0.0 && offset < current {
-            break;
+fn axis_index_at(offset: f32, limit: u32, offset_at: impl Fn(u32) -> f32) -> u32 {
+    let mut low = 0;
+    let mut high = limit;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if offset < offset_at(middle + 1) {
+            high = middle;
+        } else {
+            low = middle + 1;
         }
-        offset -= current;
-        index += 1;
     }
-    index
+    low.min(limit.saturating_sub(1))
 }
 
-fn axis_end_at(start: u32, absolute_end: f32, size: impl Fn(u32) -> f32, limit: u32) -> u32 {
-    let mut index = 0u32;
-    let mut offset = 0.0;
-    while index < start && index < limit {
-        offset += size(index);
-        index += 1;
+fn axis_end_at(start: u32, absolute_end: f32, limit: u32, offset_at: impl Fn(u32) -> f32) -> u32 {
+    let mut low = start.min(limit);
+    let mut high = limit;
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if offset_at(middle) < absolute_end {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
     }
-    while index < limit && offset < absolute_end {
-        offset += size(index);
-        index += 1;
-    }
-    index
+    low
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -254,9 +253,15 @@ pub fn build_viewport(
             .cells
             .range(CellCoord::new(row_range.start, 0)..CellCoord::new(row_range.end, 0))
         {
-            if column_indices.binary_search(&cell.coord.column).is_err() {
+            let Ok(column_index) = column_indices.binary_search(&cell.coord.column) else {
                 continue;
-            }
+            };
+            let Ok(row_index) = rows.binary_search_by_key(&cell.coord.row, |metric| metric.index)
+            else {
+                continue;
+            };
+            let column_metric = &columns[column_index];
+            let row_metric = &rows[row_index];
             let merge = intersecting_merges
                 .iter()
                 .find(|range| range.contains(cell.coord));
@@ -266,27 +271,21 @@ pub fn build_viewport(
             let style = workbook.style(cell.style_id);
             let (width, height, merged) = if let Some(range) = merge {
                 (
-                    (range.start.column..=range.end.column)
-                        .map(|column| worksheet.column_width(column))
-                        .sum(),
-                    (range.start.row..=range.end.row)
-                        .map(|row| worksheet.row_height(row))
-                        .sum(),
+                    worksheet.column_offset(range.end.column.saturating_add(1))
+                        - worksheet.column_offset(range.start.column),
+                    worksheet.row_offset(range.end.row.saturating_add(1))
+                        - worksheet.row_offset(range.start.row),
                     true,
                 )
             } else {
-                (
-                    worksheet.column_width(cell.coord.column),
-                    worksheet.row_height(cell.coord.row),
-                    false,
-                )
+                (column_metric.size, row_metric.size, false)
             };
             cells.push(DisplayCell {
                 address: cell.coord.address(),
                 row: cell.coord.row,
                 column: cell.coord.column,
-                x: worksheet.column_offset(cell.coord.column) - origin_x,
-                y: worksheet.row_offset(cell.coord.row) - origin_y,
+                x: column_metric.offset,
+                y: row_metric.offset,
                 width,
                 height,
                 text: format_cell(&cell.value, &style.number_format, workbook.date_1904),
@@ -391,12 +390,10 @@ fn display_merge(
         end: range.end,
         x: worksheet.column_offset(range.start.column) - origin_x,
         y: worksheet.row_offset(range.start.row) - origin_y,
-        width: (range.start.column..=range.end.column)
-            .map(|column| worksheet.column_width(column))
-            .sum(),
-        height: (range.start.row..=range.end.row)
-            .map(|row| worksheet.row_height(row))
-            .sum(),
+        width: worksheet.column_offset(range.end.column.saturating_add(1))
+            - worksheet.column_offset(range.start.column),
+        height: worksheet.row_offset(range.end.row.saturating_add(1))
+            - worksheet.row_offset(range.start.row),
     }
 }
 
@@ -435,6 +432,45 @@ mod tests {
         assert!(viewport.column_end > viewport.column_start);
         assert!(viewport.row_end > viewport.row_start);
         assert!(viewport.cells.len() < 1_000);
+    }
+
+    #[test]
+    fn locates_deep_scroll_offsets_with_logarithmic_axis_lookups() {
+        let lookups = std::cell::Cell::new(0);
+        let row = axis_index_at(900_000.0 * 24.0 + 5.0, 1_048_576, |index| {
+            lookups.set(lookups.get() + 1);
+            index as f32 * 24.0
+        });
+        assert_eq!(row, 900_000);
+        assert!(lookups.get() <= 21, "used {} axis lookups", lookups.get());
+
+        lookups.set(0);
+        let end = axis_end_at(row, 900_015.0 * 24.0, 1_048_576, |index| {
+            lookups.set(lookups.get() + 1);
+            index as f32 * 24.0
+        });
+        assert_eq!(end, 900_015);
+        assert!(lookups.get() <= 21, "used {} axis lookups", lookups.get());
+    }
+
+    #[test]
+    fn skips_hidden_axes_when_resolving_pixel_offsets() {
+        let mut workbook = demo_workbook();
+        let sheet = &mut workbook.sheets[0];
+        sheet.row_heights.insert(0, 0.0);
+        sheet.row_heights.insert(1, 0.0);
+        sheet.column_spans.push(crate::model::ColumnSpan {
+            start: 0,
+            end: 0,
+            width: 96.0,
+            hidden: true,
+        });
+
+        let viewport = build_viewport_for_pixels(&workbook, 0, 0.0, 0.0, 300.0, 200.0, 0)
+            .expect("hidden dimensions should not block visible axis lookup");
+
+        assert_eq!(viewport.column_start, 1);
+        assert_eq!(viewport.row_start, 2);
     }
 
     #[test]

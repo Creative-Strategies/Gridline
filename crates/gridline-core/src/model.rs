@@ -233,7 +233,30 @@ impl Worksheet {
     }
 
     pub fn column_offset(&self, column: u32) -> f32 {
-        (0..column).map(|index| self.column_width(index)).sum()
+        let mut offset = column as f32 * DEFAULT_COLUMN_WIDTH;
+        let mut previous_end = None;
+
+        for span in &self.column_spans {
+            if span.start >= column {
+                continue;
+            }
+            if previous_end.is_some_and(|end| span.start <= end) {
+                // OOXML producers normally emit ordered, non-overlapping column
+                // spans. Preserve the existing last-span-wins behavior for the
+                // uncommon overlapping or out-of-order case.
+                return (0..column).map(|index| self.column_width(index)).sum();
+            }
+
+            let end = span.end.min(column - 1);
+            if end < span.start {
+                continue;
+            }
+            let width = if span.hidden { 0.0 } else { span.width };
+            offset += (end - span.start + 1) as f32 * (width - DEFAULT_COLUMN_WIDTH);
+            previous_end = Some(end);
+        }
+
+        offset
     }
 
     pub fn row_offset(&self, row: u32) -> f32 {
@@ -246,9 +269,7 @@ impl Worksheet {
     }
 
     pub fn total_width(&self) -> f32 {
-        (0..=self.max_column.max(25))
-            .map(|column| self.column_width(column))
-            .sum()
+        self.column_offset(self.max_column.max(25) + 1)
     }
 
     pub fn total_height(&self) -> f32 {
@@ -912,6 +933,59 @@ mod tests {
         let workbook = demo_workbook();
         assert_eq!(workbook.metadata().cell_count, 2_418);
         assert_eq!(workbook.metadata().sheets.len(), 4);
+    }
+
+    #[test]
+    fn computes_sparse_column_offsets_without_visiting_default_columns() {
+        let mut worksheet = Worksheet::new("Sparse columns");
+        worksheet.column_spans = vec![
+            ColumnSpan {
+                start: 1,
+                end: 2,
+                width: 140.0,
+                hidden: false,
+            },
+            ColumnSpan {
+                start: 6,
+                end: 7,
+                width: 80.0,
+                hidden: true,
+            },
+            ColumnSpan {
+                start: 10_000,
+                end: 10_000,
+                width: 200.0,
+                hidden: false,
+            },
+        ];
+
+        for column in [0, 1, 2, 3, 6, 7, 8, 10_000, 10_001, 16_384] {
+            let expected = (0..column)
+                .map(|index| worksheet.column_width(index))
+                .sum::<f32>();
+            assert_eq!(worksheet.column_offset(column), expected);
+        }
+    }
+
+    #[test]
+    fn preserves_last_column_span_when_overrides_overlap() {
+        let mut worksheet = Worksheet::new("Overlapping columns");
+        worksheet.column_spans = vec![
+            ColumnSpan {
+                start: 1,
+                end: 4,
+                width: 120.0,
+                hidden: false,
+            },
+            ColumnSpan {
+                start: 3,
+                end: 5,
+                width: 160.0,
+                hidden: false,
+            },
+        ];
+
+        assert_eq!(worksheet.column_offset(6), 816.0);
     }
 
     #[test]
