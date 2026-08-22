@@ -54,6 +54,39 @@ export function WorkbookPage({ file }: { file?: File }) {
 }
 ~~~
 
+For an embedded read-only financial model, use compact mode and open the
+desired worksheet directly:
+
+~~~tsx
+<GridlineViewer
+  mode="compact"
+  initialSheet="Dashboard"
+  source={{ type: "url", url: signedWorkbookUrl, name: "Atlas.xlsx" }}
+/>
+~~~
+
+Compact mode keeps accessible sheet switching and zoom while removing branding,
+the repeated workbook title, editor-like controls, duplicate sheet navigation,
+the status bar, and file actions owned by the embedding platform. Its desktop
+chrome uses 76px instead of the full viewer's 234px.
+
+`initialSheet` accepts a case-insensitive sheet name or zero-based index.
+`defaultSheet` is an alias; `initialSheet` takes precedence. Use the optional
+`chrome` prop to override any surface individually:
+
+~~~tsx
+<GridlineViewer
+  mode="compact"
+  initialSheet="Dashboard"
+  chrome={{ sheetRail: true, sheetTabs: false, exportButton: true }}
+/>
+~~~
+
+The package exports `GridlineChromeOptions`, `GridlineInitialSheet`, and
+`GridlineViewerMode`. Available chrome controls are `topBar`, `branding`,
+`title`, `toolbar`, `formulaBar`, `sheetRail`, `sheetTabs`, `statusBar`,
+`openButton`, `exportButton`, `workbookMenu`, and `zoom`.
+
 The package also exports cloud/resolver source types, browser-side encryption
 helpers, GridlineController, and the lower-level worker client. Remote URLs
 are fetched by the browser and remain subject to CORS; embedding platforms

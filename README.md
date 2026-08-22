@@ -133,6 +133,58 @@ Cloud-hosted and platform-encrypted workbooks can be supplied directly:
 />
 ```
 
+### Compact read-only embedding
+
+For financial-model portals and other hosts that already provide their own page
+title, downloads, and document controls, use the supported compact viewer:
+
+```tsx
+<GridlineViewer
+  autoLoadDemo={false}
+  initialSheet="Dashboard"
+  mode="compact"
+  source={{
+    type: "url",
+    url: signedDownloadUrl,
+    name: "Atlas financial model.xlsx",
+  }}
+/>
+```
+
+Compact mode removes Gridline branding, the repeated workbook filename, disabled
+undo/redo controls, formula and cell-address bars, the duplicate sheet rail,
+status bar, and platform-owned file actions. Accessible sheet tabs and zoom
+remain available. The standard desktop layout uses 234px of non-canvas chrome;
+compact mode uses 76px, returning 158px to the workbook.
+
+`initialSheet` accepts a case-insensitive sheet name or a zero-based sheet
+index. `defaultSheet` is also supported; when both are provided, `initialSheet`
+wins. Invalid or missing sheets safely fall back to the first worksheet.
+
+Each surface can be restored or hidden independently:
+
+```tsx
+<GridlineViewer
+  mode="compact"
+  initialSheet="Dashboard"
+  chrome={{
+    branding: false,
+    title: false,
+    sheetRail: true,
+    sheetTabs: false,
+    exportButton: true,
+  }}
+/>
+```
+
+`GridlineChromeOptions` supports `topBar`, `branding`, `title`, `toolbar`,
+`formulaBar`, `sheetRail`, `sheetTabs`, `statusBar`, `openButton`,
+`exportButton`, `workbookMenu`, and `zoom`. Keep a sheet navigation surface and
+zoom available unless the host supplies accessible equivalents through
+`GridlineController`. Hiding `openButton` also disables user-initiated file
+drops; controller-driven, signed-URL, encrypted, and resolver sources remain
+available.
+
 The reference app uses the `withGridline` helper to transpile the viewer and
 WASM packages. Turbopack handles the worker and `.wasm` asset directly. In
 Webpack compatibility mode, the helper also enables `asyncWebAssembly`, assigns

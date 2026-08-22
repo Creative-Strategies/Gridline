@@ -38,6 +38,70 @@ const source: GridlineSource = {
 
 Remote hosts must allow the embedding origin through CORS. Prefer short-lived, read-only signed URLs. Do not expose long-lived cloud credentials or service tokens to the browser. If an end user can influence the URL, enforce an origin allowlist before attaching `Authorization`, cookies, or other privileged request options; redirects should remain within the same policy.
 
+## Compact, platform-owned read-only viewer
+
+When the surrounding platform already owns the page heading, workbook title,
+downloads, and document selection, opt into Gridline's supported compact mode:
+
+```tsx
+import { GridlineViewer, type GridlineSource } from "gridline-viewer";
+
+export function FinancialModel({ source }: { source: GridlineSource }) {
+  return (
+    <GridlineViewer
+      autoLoadDemo={false}
+      initialSheet="Dashboard"
+      mode="compact"
+      source={source}
+    />
+  );
+}
+```
+
+The default compact presentation contains one 40px accessible zoom bar and one
+36px accessible sheet-tab bar. It hides Gridline branding, the repeated workbook
+filename, disabled undo/redo, formula tools and the address bar, the duplicate
+sheet rail, the status bar, and workbook open/export/menu actions. Compared with
+the full 234px desktop chrome, 158px returns to the rendered worksheet.
+
+`initialSheet` accepts a zero-based sheet index or a case-insensitive sheet name.
+`defaultSheet` is a supported alias, and `initialSheet` takes precedence if both
+are supplied. Invalid names and indices safely fall back to the first sheet. The
+chosen sheet is applied before the initial worksheet render, including cloud,
+controller, demo, and encrypted-document flows.
+
+Every compact default is individually configurable through `chrome`:
+
+```tsx
+<GridlineViewer
+  mode="compact"
+  initialSheet="Dashboard"
+  chrome={{
+    topBar: true,
+    branding: false,
+    title: false,
+    toolbar: false,
+    formulaBar: false,
+    sheetRail: false,
+    sheetTabs: true,
+    statusBar: false,
+    openButton: false,
+    exportButton: false,
+    workbookMenu: false,
+    zoom: true,
+  }}
+/>
+```
+
+For example, use `{ sheetRail: true, sheetTabs: false }` to present exactly one
+sheet navigation surface, or set `exportButton: true` to restore CSV export.
+Keep at least one accessible sheet navigator and zoom surface unless equivalent
+platform controls call `GridlineController.setActiveSheet()` and `setZoom()`.
+When `openButton` is disabled, user-initiated file picker and drag-and-drop
+replacement are unavailable; signed sources, controller-controlled loading,
+password unlocking, encrypted documents, and original/encrypted downloads
+through the controller remain unchanged.
+
 ## Content Security Policy and worker caching
 
 Gridline compiles its Rust engine's WebAssembly inside a module Web Worker.
