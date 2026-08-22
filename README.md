@@ -67,7 +67,7 @@ replaced by the host's existing nonce or hash policy. Do not replace
 `'wasm-unsafe-eval'` with the broader `'unsafe-eval'` token.
 
 Gridline adds its release version to the worker bootstrap's real HTTP query
-string (for example, `?gridline-worker=0.3.0`). This changes the worker cache
+string (for example, `?gridline-worker=0.3.1`). This changes the worker cache
 key on every Gridline upgrade, preventing an immutable cached worker response
 from retaining stale CSP metadata. The `withGridline` helper also keeps the
 worker bootstrap same-origin when ordinary Next.js assets use a CDN.

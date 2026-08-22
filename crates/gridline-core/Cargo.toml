@@ -1,6 +1,6 @@
 [package]
 name = "gridline-core"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 description = "From-scratch OOXML workbook layout engine for WebAssembly"
 license = "MIT"

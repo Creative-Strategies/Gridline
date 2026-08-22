@@ -2,6 +2,19 @@
 
 All notable changes to Gridline are documented here.
 
+## 0.3.1
+
+- Keep column-letter headers, row-number gutters, and the corner intersection
+  permanently anchored during horizontal, vertical, and diagonal scrolling by
+  placing the painted canvas outside the browser's native scroll layer.
+- Preserve native scrolling, frozen panes, zoom, cell-selection hit testing,
+  keyboard navigation, compact embedding, viewport virtualization, and
+  accessible grid semantics without requestAnimationFrame-delayed
+  counter-transforms.
+- Add focused regression coverage for scroll-layer separation, all scroll
+  directions, frozen panes, zoom, pointer selection, keyboard navigation,
+  scroll coalescing, and viewer cleanup.
+
 ## 0.3.0
 
 - Add a supported compact, read-only embedding mode with individually
