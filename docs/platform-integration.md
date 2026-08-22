@@ -139,7 +139,7 @@ nonce-based Next.js policy can remove the example's `'unsafe-inline'` values;
 the Gridline requirement is the narrowly scoped `'wasm-unsafe-eval'` value.
 
 Gridline appends its package version to the worker bootstrap's real HTTP query
-string (for example, `?gridline-worker=0.2.1`). Each release therefore changes
+string (for example, `?gridline-worker=0.3.0`). Each release therefore changes
 the worker's cache key while retaining immutable caching within a release.
 `withGridline` also defaults Turbopack's worker-specific asset prefix to the
 same origin, even when the application's ordinary Next.js assets use a CDN.
