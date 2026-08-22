@@ -1,4 +1,4 @@
-import type { CellCoord, DisplayList } from "../engine/types";
+import type { CellCoord, DisplayList, PixelViewport } from "../engine/types";
 
 export const ROW_HEADER_WIDTH = 44;
 export const COLUMN_HEADER_HEIGHT = 28;
@@ -66,6 +66,30 @@ export function frozenPaneSize(display: DisplayList, zoom: number) {
       ? (display.originY + frozenRow.offset + frozenRow.size) * zoom
       : 0,
   };
+}
+
+/** Reuse an overscanned display list until the visible window leaves its bounds. */
+export function viewportCovers(display: DisplayList, viewport: PixelViewport) {
+  const lastColumn = display.columns.at(-1);
+  const lastRow = display.rows.at(-1);
+  if (!lastColumn || !lastRow) return false;
+
+  const right = display.originX + lastColumn.offset + lastColumn.size;
+  const bottom = display.originY + lastRow.offset + lastRow.size;
+  const visibleRight = Math.min(
+    viewport.scrollX + viewport.width,
+    display.totalWidth,
+  );
+  const visibleBottom = Math.min(
+    viewport.scrollY + viewport.height,
+    display.totalHeight,
+  );
+  return (
+    viewport.scrollX >= display.originX &&
+    viewport.scrollY >= display.originY &&
+    visibleRight <= right &&
+    visibleBottom <= bottom
+  );
 }
 
 function lastFrozenMetric(

@@ -85,6 +85,43 @@ describe("worksheet presentation", () => {
 
     expect(texts.filter((text) => text === "Operating plan")).toHaveLength(2);
   });
+
+  it("keeps the existing canvas backing store when repainting at the same size", () => {
+    let widthWrites = 0;
+    let heightWrites = 0;
+    const { canvas, display } = renderWorksheet(true);
+    let width = canvas.width;
+    let height = canvas.height;
+    Object.defineProperties(canvas, {
+      width: {
+        get: () => width,
+        set: (value: number) => {
+          width = value;
+          widthWrites += 1;
+        },
+      },
+      height: {
+        get: () => height,
+        set: (value: number) => {
+          height = value;
+          heightWrites += 1;
+        },
+      },
+    });
+
+    paintWorkbook(canvas, display, {
+      width: 180,
+      height: 120,
+      scrollX: 20,
+      scrollY: 0,
+      zoom: 1,
+      selected: { row: 2, column: 2 },
+      devicePixelRatio: 1,
+    });
+
+    expect(widthWrites).toBe(0);
+    expect(heightWrites).toBe(0);
+  });
 });
 
 function renderWorksheet(
@@ -157,5 +194,5 @@ function renderWorksheet(
     selected: { row: 2, column: 2 },
     devicePixelRatio: 1,
   });
-  return { lineSegments, texts };
+  return { canvas, display, lineSegments, texts };
 }

@@ -8,6 +8,7 @@ import {
   findAxisMetric,
   hitTestCell,
   parseCellAddress,
+  viewportCovers,
 } from "./geometry";
 
 describe("spreadsheet geometry", () => {
@@ -99,5 +100,59 @@ describe("spreadsheet geometry", () => {
     expect(findAxisMetric(metrics, 119.99)?.index).toBe(2);
     expect(findAxisMetric(metrics, 120)?.index).toBe(3);
     expect(findAxisMetric(metrics, 152)).toBeUndefined();
+  });
+
+  it("reuses overscanned viewport geometry until visible cells leave its bounds", () => {
+    const display = {
+      originX: 100,
+      originY: 240,
+      totalWidth: 2_000,
+      totalHeight: 4_000,
+      columns: [
+        { index: 0, label: "A", offset: -100, size: 100 },
+        { index: 1, label: "B", offset: 0, size: 100 },
+        { index: 2, label: "C", offset: 100, size: 100 },
+        { index: 3, label: "D", offset: 200, size: 100 },
+      ],
+      rows: [
+        { index: 0, label: "1", offset: -240, size: 24 },
+        { index: 10, label: "11", offset: 0, size: 24 },
+        { index: 11, label: "12", offset: 24, size: 24 },
+        { index: 12, label: "13", offset: 48, size: 24 },
+      ],
+    } as DisplayList;
+    const viewport = {
+      sheet: 0,
+      scrollX: 125,
+      scrollY: 250,
+      width: 150,
+      height: 40,
+    };
+
+    expect(viewportCovers(display, viewport)).toBe(true);
+    expect(viewportCovers(display, { ...viewport, scrollX: 90 })).toBe(false);
+    expect(viewportCovers(display, { ...viewport, scrollY: 280 })).toBe(false);
+    expect(viewportCovers(display, { ...viewport, width: 300 })).toBe(false);
+  });
+
+  it("does not refetch indefinitely when the viewport exceeds worksheet bounds", () => {
+    const display = {
+      originX: 0,
+      originY: 0,
+      totalWidth: 180,
+      totalHeight: 80,
+      columns: [{ index: 0, label: "A", offset: 0, size: 180 }],
+      rows: [{ index: 0, label: "1", offset: 0, size: 80 }],
+    } as DisplayList;
+
+    expect(
+      viewportCovers(display, {
+        sheet: 0,
+        scrollX: 0,
+        scrollY: 0,
+        width: 900,
+        height: 520,
+      }),
+    ).toBe(true);
   });
 });

@@ -32,6 +32,8 @@ type PaintPane = {
   cover: boolean;
 };
 
+type FrozenPaneMetrics = { width: number; height: number };
+
 // Canvas text is attacker-controlled workbook data. Keep layout work and the
 // string handed to fillText bounded on the main thread while allowing normal
 // long financial labels to render unchanged.
@@ -55,10 +57,14 @@ export function paintWorkbook(
   options: PaintOptions,
 ) {
   const { width, height, devicePixelRatio: ratio } = options;
-  canvas.width = Math.max(1, Math.round(width * ratio));
-  canvas.height = Math.max(1, Math.round(height * ratio));
-  canvas.style.width = `${width}px`;
-  canvas.style.height = `${height}px`;
+  const pixelWidth = Math.max(1, Math.round(width * ratio));
+  const pixelHeight = Math.max(1, Math.round(height * ratio));
+  if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+  if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
+  const cssWidth = `${width}px`;
+  const cssHeight = `${height}px`;
+  if (canvas.style.width !== cssWidth) canvas.style.width = cssWidth;
+  if (canvas.style.height !== cssHeight) canvas.style.height = cssHeight;
   const context = canvas.getContext("2d");
   if (!context) return;
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -131,8 +137,9 @@ function paintPane(
     context.fillRect(pane.x, pane.y, pane.width, pane.height);
   }
   if (display.showGridLines) paintGrid(context, display, options, pane);
-  paintCells(context, display, options, pane);
-  paintSelection(context, display, options, pane);
+  const frozen = frozenPaneSize(display, 1);
+  paintCells(context, display, options, pane, frozen);
+  paintSelection(context, display, options, pane, frozen);
   context.restore();
 }
 
@@ -168,8 +175,8 @@ function cellIntersectsPane(
   cell: DisplayList["cells"][number],
   display: DisplayList,
   pane: PaintPane,
+  frozen: FrozenPaneMetrics,
 ) {
-  const frozen = frozenPaneSize(display, 1);
   const x = display.originX + cell.x;
   const y = display.originY + cell.y;
   const intersectsColumns = pane.columnFrozen
@@ -190,16 +197,14 @@ function paintGrid(
   context.strokeStyle = colors.grid;
   context.lineWidth = 1;
   context.beginPath();
-  const columns = display.columns.filter(
-    (column) =>
-      (column.index < display.freeze.columns) === pane.columnFrozen,
-  );
-  for (const column of columns) {
+  let lastColumn: AxisMetric | undefined;
+  for (const column of display.columns) {
+    if ((column.index < display.freeze.columns) !== pane.columnFrozen) continue;
     const x = crisp(screenX(column, display, options));
     context.moveTo(x, pane.y);
     context.lineTo(x, pane.y + pane.height);
+    lastColumn = column;
   }
-  const lastColumn = columns.at(-1);
   if (lastColumn) {
     const x = crisp(
       screenX(lastColumn, display, options) + lastColumn.size * options.zoom,
@@ -207,15 +212,14 @@ function paintGrid(
     context.moveTo(x, pane.y);
     context.lineTo(x, pane.y + pane.height);
   }
-  const rows = display.rows.filter(
-    (row) => (row.index < display.freeze.rows) === pane.rowFrozen,
-  );
-  for (const row of rows) {
+  let lastRow: AxisMetric | undefined;
+  for (const row of display.rows) {
+    if ((row.index < display.freeze.rows) !== pane.rowFrozen) continue;
     const y = crisp(screenY(row, display, options));
     context.moveTo(pane.x, y);
     context.lineTo(pane.x + pane.width, y);
+    lastRow = row;
   }
-  const lastRow = rows.at(-1);
   if (lastRow) {
     const y = crisp(
       screenY(lastRow, display, options) + lastRow.size * options.zoom,
@@ -231,9 +235,10 @@ function paintCells(
   display: DisplayList,
   options: PaintOptions,
   pane: PaintPane,
+  frozen: FrozenPaneMetrics,
 ) {
   for (const cell of display.cells) {
-    if (!cellIntersectsPane(cell, display, pane)) continue;
+    if (!cellIntersectsPane(cell, display, pane, frozen)) continue;
     const style = display.styles[cell.styleId] ?? display.styles[0];
     const x =
       ROW_HEADER_WIDTH +
@@ -538,6 +543,7 @@ function paintSelection(
   display: DisplayList,
   options: PaintOptions,
   pane: PaintPane,
+  frozen: FrozenPaneMetrics,
 ) {
   const column = display.columns.find((metric) => metric.index === options.selected.column);
   const row = display.rows.find((metric) => metric.index === options.selected.row);
@@ -547,7 +553,7 @@ function paintSelection(
   );
   if (
     selectedCell
-      ? !cellIntersectsPane(selectedCell, display, pane)
+      ? !cellIntersectsPane(selectedCell, display, pane, frozen)
       : !belongsToPane(
           options.selected.row,
           options.selected.column,

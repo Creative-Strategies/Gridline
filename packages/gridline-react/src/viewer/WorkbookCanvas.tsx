@@ -18,6 +18,7 @@ import {
   COLUMN_HEADER_HEIGHT,
   ROW_HEADER_WIDTH,
   hitTestCell,
+  viewportCovers,
 } from "./geometry";
 
 type WorkbookCanvasProps = {
@@ -55,10 +56,15 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     if (!host) return;
     const measure = () => {
       const bounds = host.getBoundingClientRect();
-      setSize({
+      const next = {
         width: Math.max(320, Math.round(bounds.width)),
         height: Math.max(240, Math.round(bounds.height)),
-      });
+      };
+      setSize((previous) =>
+        previous.width === next.width && previous.height === next.height
+          ? previous
+          : next,
+      );
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -77,14 +83,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     let current = true;
     const viewportWidth = Math.max(1, size.width - ROW_HEADER_WIDTH);
     const viewportHeight = Math.max(1, size.height - COLUMN_HEADER_HEIGHT);
-    loadViewport({
+    const request = {
       sheet: activeSheet,
       scrollX: scroll.x / zoom,
       scrollY: scroll.y / zoom,
       width: viewportWidth / zoom,
       height: viewportHeight / zoom,
       overscan: 4,
-    })
+    } satisfies PixelViewport;
+    if (display?.sheetName === sheet.name && viewportCovers(display, request)) {
+      return;
+    }
+    loadViewport(request)
       .then((next) => {
         if (current) setDisplay(next);
       })
@@ -94,7 +104,18 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     return () => {
       current = false;
     };
-  }, [activeSheet, loadViewport, onError, scroll.x, scroll.y, size.height, size.width, zoom]);
+  }, [
+    activeSheet,
+    display,
+    loadViewport,
+    onError,
+    scroll.x,
+    scroll.y,
+    sheet.name,
+    size.height,
+    size.width,
+    zoom,
+  ]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -116,7 +137,10 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
       animationRef.current = null;
       const scroller = scrollRef.current;
       if (!scroller) return;
-      setScroll({ x: scroller.scrollLeft, y: scroller.scrollTop });
+      const next = { x: scroller.scrollLeft, y: scroller.scrollTop };
+      setScroll((previous) =>
+        previous.x === next.x && previous.y === next.y ? previous : next,
+      );
     });
   }, []);
 
@@ -209,4 +233,3 @@ export const WorkbookCanvas = memo(function WorkbookCanvas({
     </div>
   );
 });
-
